@@ -1,4 +1,5 @@
 const {test,expect}=require('@playwright/test');
+test.use({hasTouch:true});
 
 async function camera(page,{hardware=false,delay=0,reject=false,nativeRecorder=false,portrait=false}={}) {
   if(page.url()==='about:blank') await page.goto('/');
@@ -47,7 +48,7 @@ async function camera(page,{hardware=false,delay=0,reject=false,nativeRecorder=f
 
 async function pinch(page,ratio,{release=true,type='touch'}={}) {
   await page.evaluate(({ratio,release,type})=>{
-    const video=document.getElementById('preview');
+    const video=document.getElementById('cameraSurface');
     const event=(name,id,x)=>video.dispatchEvent(new PointerEvent(name,{bubbles:true,cancelable:true,pointerType:type,pointerId:id,clientX:x,clientY:300}));
     event('pointerdown',10,100);event('pointerdown',11,140);
     event('pointermove',11,100+40*ratio);
@@ -87,6 +88,7 @@ test('pinch crops the digital recording stream, keeps microphone audio, and rese
     settings:__encoder.getVideoTracks()[0].getSettings()}));
   expect(identities.video).not.toBe(identities.cameraVideo);
   expect(identities.audio).toBe(identities.cameraAudio);
+  expect(await page.evaluate(()=>ui.preview.srcObject.getAudioTracks().length)).toBe(0);
   expect(identities.settings.width).toBe(1280);
   expect(identities.settings.height).toBe(720);
   expect(identities.settings.frameRate).toBe(30);
@@ -140,7 +142,7 @@ test('cancelled gestures and mouse drags do not leave camera zoom moving',async(
   await pinch(page,2,{release:false});
   await expect.poll(()=>zoom(page)).toBe(2);
   await page.evaluate(()=>{
-    const video=document.getElementById('preview');
+    const video=document.getElementById('cameraSurface');
     video.dispatchEvent(new PointerEvent('pointercancel',{pointerId:10,pointerType:'touch'}));
     video.dispatchEvent(new PointerEvent('pointermove',{pointerId:11,pointerType:'touch',clientX:1000,clientY:300}));
     video.dispatchEvent(new PointerEvent('pointerup',{pointerId:11,pointerType:'touch'}));
@@ -148,7 +150,7 @@ test('cancelled gestures and mouse drags do not leave camera zoom moving',async(
   expect(await zoom(page)).toBe(2);
   await pinch(page,0.5);
   await expect.poll(()=>zoom(page)).toBe(1);
-  expect(await page.locator('#preview').evaluate(e=>getComputedStyle(e).touchAction)).toBe('none');
+  expect(await page.locator('#cameraSurface').evaluate(e=>getComputedStyle(e).touchAction)).toBe('none');
 });
 
 test('a camera rejecting zoom keeps its last real zoom and recording track',async({page})=>{
@@ -158,6 +160,58 @@ test('a camera rejecting zoom keeps its last real zoom and recording track',asyn
   expect(await zoom(page)).toBe(1);
   await page.getByRole('button',{name:'Start recording',exact:true}).click();
   expect(await page.evaluate(()=>__encoder.getVideoTracks()[0].id===__camera.getVideoTracks()[0].id)).toBe(true);
+});
+
+for (const hardware of [false,true]) {
+  test(`real touch pinch keeps recording controls available with ${hardware?'camera':'digital'} zoom`,async({page,browserName})=>{
+    test.skip(browserName!=='chromium','CDP touch injection requires Chromium; WebKit gesture logic is covered separately.');
+    await camera(page,{hardware});
+    const preview=await page.evaluate(()=>({muted:ui.preview.muted,defaultMuted:ui.preview.defaultMuted,controls:ui.preview.controls,
+      inline:ui.preview.playsInline,audio:ui.preview.srcObject.getAudioTracks().length,
+      target:document.elementFromPoint(120,300).id,events:getComputedStyle(ui.preview).pointerEvents}));
+    expect(preview).toEqual({muted:true,defaultMuted:true,controls:false,inline:true,audio:0,target:'cameraSurface',events:'none'});
+    await page.evaluate(()=>{window.__playerTouches=0;ui.preview.addEventListener('pointerdown',()=>window.__playerTouches++);});
+    await page.getByRole('button',{name:'Start recording',exact:true}).click();
+    const cdp=await page.context().newCDPSession(page);
+    await cdp.send('Emulation.setTouchEmulationEnabled',{enabled:true,maxTouchPoints:2});
+    const points=distance=>[{x:100,y:300,id:10},{x:100+distance,y:300,id:11}];
+    await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:points(80)});
+    for(const distance of [100,120,140,160]) {
+      await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:points(distance)});
+      await page.evaluate(()=>new Promise(requestAnimationFrame));
+    }
+    await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+    await expect.poll(()=>zoom(page)).toBe(2);
+    const state=await page.evaluate(()=>({recording:isRecording(),paused:ui.preview.paused,fullscreen:!!document.fullscreenElement,
+      scale:visualViewport.scale,playerTouches:__playerTouches,audio:__encoder.getAudioTracks()[0].readyState}));
+    expect(state).toEqual({recording:true,paused:false,fullscreen:false,scale:1,playerTouches:0,audio:'live'});
+    const stop=page.getByRole('button',{name:'Stop recording',exact:true});
+    await expect(stop).toBeVisible();
+    await stop.tap();
+    await expect(page.getByRole('button',{name:'Start recording',exact:true})).toBeEnabled();
+    expect(await page.evaluate(async()=>(await listVideos())[0].size)).toBeGreaterThan(0);
+  });
+}
+
+test('an autoplay-blocked preview retries from the app button without reopening camera or microphone',async({page})=>{
+  await page.addInitScript(()=>{
+    const play=HTMLMediaElement.prototype.play;
+    window.__cameraRequests=0;
+    const gum=navigator.mediaDevices?.getUserMedia.bind(navigator.mediaDevices);
+    if(gum) navigator.mediaDevices.getUserMedia=async c=>{window.__cameraRequests++;return gum(c);};
+    let blocked=true;
+    HTMLMediaElement.prototype.play=function(){
+      if(this.id==='preview'&&blocked){blocked=false;return Promise.reject(new DOMException('Autoplay blocked','NotAllowedError'));}
+      return play.call(this);
+    };
+  });
+  await page.goto('/');
+  test.skip(await page.evaluate(()=>!navigator.mediaDevices),'This WebKit build has no camera capture.');
+  await expect(page.locator('#overlayMsg')).toContainText('Tap Start camera');
+  await expect(page.getByRole('button',{name:'Start recording',exact:true})).toBeDisabled();
+  await page.getByRole('button',{name:'Start camera',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Start recording',exact:true})).toBeEnabled();
+  expect(await page.evaluate(()=>__cameraRequests)).toBe(1);
 });
 
 test('encoded zoom is present in actual HEVC MP4 playback',async({page})=>{

@@ -20,6 +20,8 @@ Pinch apart on the camera preview to zoom in, or pinch together to zoom out, bef
 
 When the browser exposes camera zoom, CamSync uses its supported range and preserves the 720p/30 fps constraints. Otherwise, a 1×–4× digital crop feeds both the preview and the recording stream, with the original microphone audio. Digital zoom enlarges a crop and reduces detail at higher magnification. On browsers without either camera zoom or canvas-stream capture, recording still works and zoom is unavailable. Page scaling is suppressed only on the camera preview; settings retain normal touch behavior.
 
+The live preview is a muted, video-only stream with native player controls, AirPlay, and picture-in-picture disabled. A separate touch surface receives pinch gestures, so the video element never receives player taps or pinches. Microphone audio remains in the recorder stream. The record button handles touch release directly so a browser suppressing clicks after pinching cannot swallow Stop. If iOS blocks autoplay, **Start camera** resumes the existing preview without reacquiring camera or microphone permissions.
+
 ## Google connection and private access
 
 Sign-in uses a top-level authorization redirect, offline access, state, PKCE, and a verified Google ID token. The server creates an opaque Secure/HttpOnly session cookie. On reopening, the app obtains a short-lived access token without another Google prompt. Expired tokens renew automatically; a rejected Drive token refreshes and retries once. Revoked grants require reconnecting.

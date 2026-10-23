@@ -2,16 +2,17 @@
 
 // Camera zoom changes the recorded stream, never just the preview's CSS scale.
 class CamSyncZoom {
-  constructor({ video, canvas, control, button, onError }) {
-    Object.assign(this, { video, canvas, control, button, onError });
+  constructor({ video, surface, canvas, control, button, onError }) {
+    Object.assign(this, { video, surface, canvas, control, button, onError });
     this.points = new Map();
     this.state = null;
     this.gesture = null;
     button.addEventListener('click', () => this.set(1));
-    video.addEventListener('pointerdown', (event) => {
+    // A separate div owns all touches. iOS must never hit-test the video player.
+    surface.addEventListener('pointerdown', (event) => {
       if (event.pointerType !== 'touch' || this.points.size >= 2) return;
       this.points.set(event.pointerId, [event.clientX, event.clientY]);
-      try { video.setPointerCapture(event.pointerId); } catch {}
+      try { surface.setPointerCapture(event.pointerId); } catch {}
       if (this.points.size === 2) {
         event.preventDefault();
         const distance = this.distance();
@@ -19,7 +20,7 @@ class CamSyncZoom {
         if (!this.state?.supported) onError('Camera zoom isn’t available in this browser.');
       }
     });
-    video.addEventListener('pointermove', (event) => {
+    surface.addEventListener('pointermove', (event) => {
       if (!this.points.has(event.pointerId)) return;
       this.points.set(event.pointerId, [event.clientX, event.clientY]);
       if (this.points.size === 2 && this.gesture) {
@@ -28,9 +29,10 @@ class CamSyncZoom {
       }
     });
     const release = (event) => { this.points.delete(event.pointerId); this.gesture = null; };
-    for (const name of ['pointerup', 'pointercancel', 'lostpointercapture']) video.addEventListener(name, release);
+    for (const name of ['pointerup', 'pointercancel', 'lostpointercapture']) surface.addEventListener(name, release);
     // Safari may also emit gesture events. Keep the page at its normal scale.
-    for (const name of ['gesturestart', 'gesturechange']) video.addEventListener(name, (event) => event.preventDefault(), { passive: false });
+    for (const name of ['gesturestart', 'gesturechange']) surface.addEventListener(name, (event) => event.preventDefault(), { passive: false });
+    for (const name of ['click', 'dblclick', 'contextmenu']) surface.addEventListener(name, (event) => event.preventDefault());
   }
 
   distance() {

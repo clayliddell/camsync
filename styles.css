@@ -19,12 +19,17 @@ html, body {
   font: 16px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
   overflow: hidden; overscroll-behavior: none; -webkit-user-select: none; user-select: none;
 }
-button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; padding: 0; }
+button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; padding: 0; touch-action: manipulation; }
 button:disabled { opacity: .4; cursor: default; }
 .hidden { display: none !important; }
 
 #preview, #zoomPreview { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #000; }
-#preview { touch-action: none; }
+#preview { pointer-events: none; -webkit-user-drag: none; }
+#preview::-webkit-media-controls,
+#preview::-webkit-media-controls-enclosure,
+#preview::-webkit-media-controls-panel,
+#preview::-webkit-media-controls-start-playback-button { display: none !important; -webkit-appearance: none; }
+#cameraSurface { position: fixed; inset: 0; z-index: 1; touch-action: none; user-select: none; -webkit-user-select: none; }
 #preview.mirror, #zoomPreview.mirror { transform: scaleX(-1); }
 #zoomPreview { pointer-events: none; }
 #zoomControl { position: fixed; bottom: calc(var(--safe-b) + 138px); left: 50%; transform: translateX(-50%); z-index: 5; display: flex; flex-direction: column; align-items: center; gap: 5px; pointer-events: none; }

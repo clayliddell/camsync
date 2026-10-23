@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '9';
+const APP_VERSION = '10';
 
 /* ================= Config ================= */
 // Optional: paste your OAuth client ID here instead of entering it in Settings.
@@ -473,7 +473,7 @@ let recStartedAt = 0;
 let timerId = 0;
 let wakeLock = null;
 let unsavedFile = null;
-const cameraZoom = new CamSyncZoom({ video: ui.preview, canvas: $('zoomPreview'),
+const cameraZoom = new CamSyncZoom({ video: ui.preview, surface: $('cameraSurface'), canvas: $('zoomPreview'),
   control: $('zoomControl'), button: $('zoomReset'), onError: toast });
 
 const isRecording = () => !!recorder && recorder.state === 'recording';
@@ -497,6 +497,43 @@ function stopStream() {
   if (stream) stream.getTracks().forEach((t) => t.stop());
   stream = null;
   ui.preview.srcObject = null;
+}
+
+function prepareCameraPreview() {
+  // Set properties before srcObject/play, including when restarting a camera.
+  // No microphone track is ever attached to this player.
+  ui.preview.controls = false;
+  ui.preview.removeAttribute('controls');
+  ui.preview.muted = true;
+  ui.preview.defaultMuted = true;
+  ui.preview.playsInline = true;
+  ui.preview.autoplay = true;
+  ui.preview.disablePictureInPicture = true;
+  ui.preview.disableRemotePlayback = true;
+  ui.preview.setAttribute('playsinline', '');
+  ui.preview.setAttribute('webkit-playsinline', '');
+}
+
+function keepCameraInline() {
+  if (!ui.preview.srcObject) return;
+  try {
+    if (ui.preview.webkitPresentationMode && ui.preview.webkitPresentationMode !== 'inline') ui.preview.webkitSetPresentationMode?.('inline');
+    else if (ui.preview.webkitDisplayingFullscreen) ui.preview.webkitExitFullscreen?.();
+  } catch {}
+  if (document.fullscreenElement === ui.preview) document.exitFullscreen?.().catch(() => {});
+  if (!document.hidden && ui.preview.paused) ui.preview.play().catch(() => {});
+}
+
+async function activateCameraPreview() {
+  try { await ui.preview.play(); }
+  catch {
+    showOverlay('Tap Start camera to enable the live preview.', true);
+    return;
+  }
+  if (!stream || ui.preview.srcObject?.getVideoTracks()[0]?.readyState !== 'live') return;
+  cameraZoom.start(stream);
+  ui.overlay.classList.add('hidden');
+  ui.recordBtn.disabled = finalizing || !!unsavedFile;
 }
 
 async function startCamera() {
@@ -523,12 +560,10 @@ async function startCamera() {
         : `Couldn’t start the camera (${e.message || e.name}).`, true);
     return;
   }
-  ui.preview.srcObject = stream;
+  prepareCameraPreview();
+  ui.preview.srcObject = new MediaStream(stream.getVideoTracks());
   ui.preview.classList.toggle('mirror', facing === 'user');
-  try { await ui.preview.play(); } catch {}
-  cameraZoom.start(stream);
-  ui.overlay.classList.add('hidden');
-  ui.recordBtn.disabled = finalizing || !!unsavedFile;
+  await activateCameraPreview();
 }
 
 function tick() {
@@ -798,9 +833,38 @@ async function saveSettingsForm() {
 
 /* ================= Wiring ================= */
 function bindUI() {
-  ui.recordBtn.addEventListener('click', () => (isRecording() ? stopRecording() : startRecording()));
+  prepareCameraPreview();
+  for (const event of ['webkitbeginfullscreen', 'webkitpresentationmodechanged']) ui.preview.addEventListener(event, keepCameraInline);
+  document.addEventListener('fullscreenchange', keepCameraInline);
+  const toggleRecording = () => isRecording() ? stopRecording() : startRecording();
+  let recordTouch = null, lastRecordTouch = -Infinity;
+  ui.recordBtn.addEventListener('pointerdown', (event) => {
+    if (event.pointerType !== 'touch' || ui.recordBtn.disabled || recordTouch !== null) return;
+    recordTouch = event.pointerId;
+    try { ui.recordBtn.setPointerCapture(event.pointerId); } catch {}
+  });
+  ui.recordBtn.addEventListener('pointerup', (event) => {
+    if (event.pointerId !== recordTouch) return;
+    recordTouch = null;
+    const bounds = ui.recordBtn.getBoundingClientRect();
+    if (ui.recordBtn.disabled || event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) return;
+    event.preventDefault();
+    lastRecordTouch = performance.now();
+    toggleRecording();
+  });
+  const cancelRecordTouch = (event) => { if (event.pointerId === recordTouch) recordTouch = null; };
+  for (const event of ['pointercancel', 'lostpointercapture']) ui.recordBtn.addEventListener(event, cancelRecordTouch);
+  ui.recordBtn.addEventListener('click', (event) => {
+    // A touch already handled above may generate a delayed click. Keyboard activation still works.
+    if (event.detail !== 0 && performance.now() - lastRecordTouch < 700) { event.preventDefault(); return; }
+    toggleRecording();
+  });
   ui.flipBtn.addEventListener('click', () => { if (isRecording()) return; facing = facing === 'user' ? 'environment' : 'user'; startCamera(); });
-  ui.retryCamBtn.addEventListener('click', startCamera);
+  ui.retryCamBtn.addEventListener('click', () => {
+    // A user gesture can release iOS autoplay restrictions without reopening the microphone.
+    if (stream && ui.preview.srcObject && stream.getVideoTracks().some((t) => t.readyState === 'live')) activateCameraPreview();
+    else startCamera();
+  });
   ui.settingsBtn.addEventListener('click', () => openSheet('uploads'));
   ui.queueBtn.addEventListener('click', () => openSheet('uploads'));
   ui.accountBtn.addEventListener('click', () => openSheet('settings'));

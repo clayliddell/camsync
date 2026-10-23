@@ -181,7 +181,9 @@ test('changing accounts never reuses another account’s upload session or folde
 test('denied Drive permission preserves the recording without making Drive requests', async ({ page }) => {
   const state = await setup(page, {denied:true});
   await record(page);
+  const returned = page.waitForEvent('framenavigated', {predicate:frame=>frame===page.mainFrame() && new URL(frame.url()).pathname==='/'});
   await page.getByRole('button', {name:'Sign in with Google',exact:true}).click();
+  await returned;
   await page.waitForURL('/');
   await page.waitForFunction(() => typeof db !== 'undefined' && db);
   expect(await page.evaluate(() => getToken())).toBeNull();
