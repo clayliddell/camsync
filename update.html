@@ -67,6 +67,8 @@
       button.disabled = true;
       status.textContent = 'Downloading the latest CamSync…';
       try {
+        const session = await fetch('/auth/session', { credentials: 'same-origin', cache: 'no-store' });
+        if (session.status === 401) { location.assign('/auth/login'); return; }
         if (!('serviceWorker' in navigator)) throw new Error('Updates unavailable');
         const registration = await navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' });
         await registration.update();
@@ -79,12 +81,14 @@
         status.textContent = `CamSync ${version} is ready. Your saved phone recordings and settings were kept.`;
         button.hidden = true;
         open.hidden = false;
+        if (new URLSearchParams(location.search).get('connected') === '1') location.replace('./');
       } catch {
         status.textContent = 'Couldn’t download the update. Check your connection and try again. Your saved recordings and settings are kept.';
         button.disabled = false;
         button.textContent = 'Try again';
       }
     });
+    if (new URLSearchParams(location.search).get('connected') === '1') button.click();
   </script>
 </body>
 </html>

@@ -1,25 +1,40 @@
-# vid.skrrt.party deployment
+# Oracle deployment
 
-- Public application URL: https://vid.skrrt.party/
-- Source repository: https://github.com/clayliddell/camsync
-- GitHub Pages source: GitHub Actions, `.github/workflows/pages.yml`
-- Porkbun DNS: `CNAME` host `vid`, value `clayliddell.github.io`, TTL `600`
-- The existing `skrrt.party` root-domain record is separate from this subdomain.
+The PWA stays at **https://vid.skrrt.party/**. Keeping this origin preserves access to existing phone recordings. GitHub holds source and runs checks; Oracle hosts the app and authentication service. GitHub Pages is disabled after migration to remove its alternate public app URL.
 
-Push app changes to `main` to deploy. The workflow checks the retention rules and JavaScript syntax, packages only the static app and icons, and deploys the artifact. Tests, documentation, dependencies, and recordings are not part of the hosted artifact.
+## Infrastructure
 
-In GitHub repository **Settings → Pages**, the custom domain is `vid.skrrt.party`. The certificate is approved and **Enforce HTTPS** is enabled. HTTPS returns 200 and HTTP redirects to HTTPS. GitHub manages certificate renewals.
+- SSH alias `oracle-vps`, Ubuntu, reached over the existing Tailscale connection.
+- Porkbun DNS: `A vid → 64.181.199.141`, TTL 600. The apex record is separate.
+- Code: `/opt/camsync`; Docker Compose: `server/compose.yaml`.
+- Container `camsync`: non-root UID 10001, read-only image, 256 MiB limit, no published host port. Caddy reaches it over the existing `open-webui_app-network`.
+- The `vid.skrrt.party` Caddy host proxies to `camsync:4180`. Add `server/Caddyfile.fragment` alongside existing hosts. The 4 KiB request limit prevents video uploads to this service. Caddy manages HTTPS and renewal.
+- Existing root-domain game and other hosts keep their original containers.
 
-Google sign-in uses the public OAuth client ID in `config.js`, the enabled Google Drive API, and `https://vid.skrrt.party` as the web client's authorized JavaScript origin. No client secret is included in the app. The privacy notice is at `https://vid.skrrt.party/privacy.html`.
+## Secrets and sessions
 
-The Google Cloud project for this deployment is `camsync-512516`. The Google Drive API is enabled. No virtual machine, application backend, or Cloud Storage bucket is required.
+- `/etc/camsync/google-client.json`: Google's web-client JSON, mode 0600, UID 10001. Never commit, package, or serve it.
+- `/etc/camsync/credential.key`: Fernet encryption key generated on the VM, mode 0600, UID 10001. Losing it requires reconnecting users.
+- `/etc/camsync/service.env`: `CAMSYNC_ALLOWED_EMAILS` with the owner's three invited addresses. Private; not copied into the public repository. Restart the container after editing it. An empty list fails startup.
+- `/var/lib/camsync/auth.sqlite3`: opaque sessions and single-use login attempts. Credential/profile payloads are encrypted. Directory 0700; database 0600. Preserve the directory and key across updates.
 
-The OAuth app is External and **In production**, with only the non-sensitive `drive.file` scope configured. Google confirms no sensitive/restricted-scope verification is required. Custom app branding is not yet verified, so Google may display the app domain rather than the CamSync brand.
+Back up credentials only to an owner-approved encrypted destination. Do not put the encryption key or database in source control or public files.
 
-Verified October 23, 2026: GitHub's DNS health check passes, its TLS certificate is approved, HTTP redirects to HTTPS, the latest deployment succeeded, and the live `config.js` contains the client ID. Cloudflare and Google public DNS resolvers return the correct CNAME and GitHub IP addresses. This workstation's local router DNS resolver still returned NXDOMAIN after the change; allow its cached response to expire or test from another network. TLS/content checks were completed against the verified GitHub IP with normal certificate validation enabled.
+Google project: `camsync-512516`. The existing web client uses origin `https://vid.skrrt.party` and callback `https://vid.skrrt.party/auth/callback`. Scopes are `openid`, email identity, and `drive.file`. The service verifies the ID token, email, nonce, and Drive permission ID. State, a short-lived HttpOnly cookie, and PKCE protect the callback. Access logs are disabled to avoid logging callback credentials.
 
-## Cost expectations
+Session cookies are Secure, HttpOnly, SameSite=Lax, and host-scoped. Sessions expire after 90 days without use and renew when the app reconnects. Google revocation, security policies, clearing browser data, or allowlist removal can require reconnecting sooner. Access tokens are returned only to same-origin POST requests with a session CSRF token. Refresh tokens never leave the VM. Recordings upload directly from the phone to Drive.
 
-Normal use is expected to cost $0 beyond the existing domain registration and any Drive storage plan a user chooses to purchase. Public GitHub Pages and the workflow's standard hosted runner are free under [GitHub's current plans](https://docs.github.com/en/get-started/learning-about-github/githubs-plans). [Standard Drive API usage](https://developers.google.com/workspace/drive/api/guides/limits) currently carries no additional charge, but Google has announced future charges above standard daily thresholds. Do not treat a linked billing account as a spending cap or assume unlimited free API usage. Recordings count against each connected user's own Drive storage.
+## Updating
 
-Do not change the deployment origin after users start recording: browser storage belongs to the origin. Updates on the same domain retain access to phone data. Bump the service-worker version when changing app files or configuration.
+1. Run Node, browser, and Python tests. Increment both app and service-worker versions when changing app files.
+2. Copy application files, icons, and `server/` to `/opt/camsync`, excluding secrets and caches.
+3. Run `cd /opt/camsync && sudo docker compose -f server/compose.yaml up -d --build`. Preserve `/etc/camsync` and `/var/lib/camsync`.
+4. Verify container health, signed-out HTTP 401, Google sign-in, and reopening. Keep the hostname unchanged and never clear phone storage to update.
+
+`/update.html` loads from the network, connects Google if necessary, and installs the new shell without clearing phone data. Google callbacks pass through it to upgrade older installed versions.
+
+Roll back by redeploying a prior tested Oracle image while preserving credentials and sessions. Validate Caddy before reloading any proxy change. Restoring old GitHub DNS would restore only the static app, without persistent authentication or private access.
+
+## Cost
+
+This reuses the existing Oracle VM. No new paid compute, subscription, or storage service is provisioned. It uses existing VM resources and bandwidth. Recordings count against each user's Drive quota. Normal low-volume Google API usage is expected to stay within standard limits; a linked billing account is not a spending cap.

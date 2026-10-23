@@ -1,6 +1,6 @@
 // Caches the app shell so CamSync opens (and records) without a connection.
 // Bump VERSION when you change any app file so phones pick up the update.
-const VERSION = 'camsync-v7';
+const VERSION = 'camsync-v8';
 const SHELL = [
   './',
   './index.html',
@@ -38,6 +38,8 @@ self.addEventListener('activate', (event) => {
 // Google API and sign-in traffic is never touched.
 self.addEventListener('fetch', (event) => {
   const req = event.request;
+  // Session, token, login, and callback responses must never enter the offline cache.
+  if (new URL(req.url).pathname.startsWith('/auth/')) return;
   if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
   // This recovery page must always come from the current deployment.
   if (new URL(req.url).pathname.endsWith('/update.html')) {

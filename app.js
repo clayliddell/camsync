@@ -1,12 +1,11 @@
 'use strict';
 
-const APP_VERSION = '7';
+const APP_VERSION = '8';
 
 /* ================= Config ================= */
 // Optional: paste your OAuth client ID here instead of entering it in Settings.
 const DEFAULT_CLIENT_ID = window.CAMSYNC_CONFIG?.googleClientId || '';
 const { retentionDays, localExpiry, expiredLocalIds, receivedOffset, RECORDING_PROFILE, HEVC_MIME_TYPES, matchesRecordingProfile, startHevcRecorder } = CamSyncCore;
-const SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const CHUNK_SIZE = 8 * 1024 * 1024; // must be a multiple of 256 KiB
 const HISTORY_LIMIT = 40;           // uploaded entries kept in the list
 const DRIVE = 'https://www.googleapis.com/drive/v3';
@@ -140,14 +139,15 @@ async function cleanupLocalCopies(now = Date.now()) {
   await pruneHistory();
 }
 
-/* ================= Google Identity Services ================= */
-// Tokens live only in memory. Never store a client secret or refresh token.
+/* ================= Persistent Google connection ================= */
+// The secure session cookie restores short-lived access. Refresh credentials stay on the VM.
 let authMessage = '';
 let auth = null;
 let authEpoch = 0;
 let authController = new AbortController();
 let signingIn = false;
-let googleScript = null;
+let authRequest = null;
+let authRetryAt = 0;
 
 function getToken() {
   return auth && auth.exp > Date.now() ? auth.token : null;
@@ -158,105 +158,116 @@ function clearToken() {
   authController = new AbortController();
   auth = null;
   signingIn = false;
+  authRequest = null;
 }
 
-function loadGoogleIdentity() {
-  if (window.google?.accounts?.oauth2) return Promise.resolve();
-  if (googleScript) return googleScript;
-  googleScript = new Promise((resolve, reject) => {
-    const script = document.createElement('script');
-    script.src = 'https://accounts.google.com/gsi/client';
-    script.async = true;
-    script.onload = resolve;
-    script.onerror = () => { script.remove(); googleScript = null; reject(new Error('Google sign-in unavailable')); };
-    document.head.append(script);
-  });
-  return googleScript;
-}
-
-function authFailed(message) {
-  clearToken();
-  authMessage = message;
-  render();
-}
-
-function signIn() {
-  if (isRecording() || signingIn) return;
-  if (!settings.clientId) {
-    openSheet('settings');
-    $('developerSetup').open = true;
-    toast('The app owner needs to configure Google sign-in first.');
-    return;
-  }
-  if (!navigator.onLine) { toast('Connect to the internet to sign in. Your recordings stay on this phone.'); return; }
-  if (!window.google?.accounts?.oauth2) {
-    loadGoogleIdentity().then(() => toast('Google is ready. Tap Sign in with Google again.'))
-      .catch(() => toast('Couldn’t load Google sign-in. Check your connection and try again.'));
-    return;
-  }
-  clearToken();
+async function restoreSession(force = false) {
+  if (!navigator.onLine || (!force && Date.now() < authRetryAt)) return false;
+  if (!force && getToken() && auth?.profile) return true;
+  if (authRequest) return authRequest;
   const epoch = authEpoch;
-  signingIn = true;
-  authMessage = '';
-  const client = google.accounts.oauth2.initTokenClient({
-    client_id: settings.clientId,
-    scope: SCOPE,
-    include_granted_scopes: false,
-    callback: async (response) => {
-      if (epoch !== authEpoch) return;
-      if (response.error) { authFailed(response.error === 'access_denied' ? 'Google sign-in was cancelled.' : 'Google sign-in failed. Please try again.'); return; }
-      if (!response.access_token || !google.accounts.oauth2.hasGrantedAllScopes(response, SCOPE)) {
-        authFailed('Drive access wasn’t granted. Sign in again and allow CamSync to create its backups.');
-        return;
+  const signal = authController.signal;
+  const pending = (async () => {
+    try {
+      const status = await fetch('/auth/session', {credentials:'same-origin', cache:'no-store', signal});
+      if (epoch !== authEpoch) return false;
+      if (status.status === 401) {
+        ls.del('cs.disconnectPending');
+        auth = null;
+        authRetryAt = Date.now() + 60000;
+        if (ls.get('cs.signedIn')) authMessage = 'Please reconnect Google Drive. Your recordings stay on this phone.';
+        return false;
       }
-      const ttl = Number(response.expires_in);
-      if (!Number.isFinite(ttl) || ttl <= 60) { authFailed('Google returned an expired session. Please sign in again.'); return; }
-      auth = { token: response.access_token, exp: Date.now() + (ttl - 60) * 1000, profile: null };
-      try {
-        const profile = await fetchAccount();
-        if (epoch !== authEpoch) return;
-        auth.profile = profile;
-        ls.set('cs.account', JSON.stringify(profile));
-        ls.set('cs.signedIn', '1');
-        signingIn = false;
-        render();
-        toast('Connected to Google Drive. Uploads will start automatically.');
-        processQueue();
-      } catch (error) {
-        if (epoch === authEpoch) authFailed(error instanceof AuthError ? 'Please reconnect Google Drive.' : 'Couldn’t connect to Google Drive. Check your connection and try again.');
+      if (!status.ok) throw new NetError();
+      const session = await status.json();
+      if (!session.csrf || !session.profile?.id) throw new NetError();
+      if (ls.get('cs.disconnectPending')) {
+        const result = await fetch('/auth/logout', {method:'POST', credentials:'same-origin', cache:'no-store', signal,
+          headers:{'X-CSRF-Token':session.csrf}});
+        if (!result.ok) throw new NetError();
+        ls.del('cs.disconnectPending');
+        return false;
       }
-    },
-    error_callback: (error) => {
-      if (epoch !== authEpoch) return;
-      authFailed(error.type === 'popup_closed' ? 'Google sign-in was cancelled.' : 'Allow Google’s sign-in window, then try again. If needed, open CamSync in Safari or Chrome.');
-    },
-  });
-  try { client.requestAccessToken({ prompt: 'select_account' }); }
-  catch { authFailed('Couldn’t open Google sign-in. Please try again.'); }
-  render();
+      const response = await fetch('/auth/token', {method:'POST', credentials:'same-origin', cache:'no-store', signal,
+        headers:{'Content-Type':'application/json', 'X-CSRF-Token':session.csrf}, body:JSON.stringify({force})});
+      if (epoch !== authEpoch) return false;
+      if (response.status === 401) {
+        auth = null;
+        authRetryAt = Date.now() + 60000;
+        authMessage = 'Please reconnect Google Drive. Your recordings stay on this phone.';
+        return false;
+      }
+      if (!response.ok) throw new NetError();
+      const token = await response.json();
+      if (!token.access_token || token.profile?.id !== session.profile.id || token.expires_at * 1000 < Date.now() + 30000) throw new NetError();
+      if (auth?.profile && auth.profile.id !== token.profile.id) {
+        clearToken(); // Abort uploads before accepting an account changed in another tab.
+        return false;
+      }
+      auth = {token:token.access_token, exp:token.expires_at * 1000 - 60000, profile:token.profile, csrf:session.csrf};
+      ls.set('cs.account', JSON.stringify(token.profile));
+      ls.set('cs.signedIn', '1');
+      authMessage = '';
+      authRetryAt = 0;
+      return true;
+    } catch (error) {
+      if (epoch === authEpoch && error.name !== 'AbortError') {
+        authRetryAt = Date.now() + 15000;
+        if (ls.get('cs.signedIn')) authMessage = 'Google connection unavailable. Your recordings stay on this phone; uploads will retry.';
+      }
+      return false;
+    } finally { render(); }
+  })();
+  authRequest = pending;
+  try { return await pending; }
+  finally { if (authRequest === pending) authRequest = null; }
 }
 
-function signOut() {
-  const token = getToken();
+async function signIn() {
+  if (isRecording() || finalizing || unsavedFile || signingIn) return;
+  if (!navigator.onLine) { toast('Connect to the internet to sign in. Your recordings stay on this phone.'); return; }
+  if (ls.get('cs.disconnectPending')) {
+    authRetryAt = 0;
+    await restoreSession();
+    if (ls.get('cs.disconnectPending')) { toast('Finish disconnecting when online, then try again.'); return; }
+  }
+  signingIn = true;
+  render();
+  location.assign('/auth/login');
+}
+
+async function signOut() {
+  const csrf = auth?.csrf;
   clearToken();
-  if (token && window.google?.accounts?.oauth2) google.accounts.oauth2.revoke(token, () => {});
+  ls.set('cs.disconnectPending', '1');
   ['cs.signedIn', 'cs.account', 'cs.email'].forEach((key) => ls.del(key));
   authMessage = '';
+  authRetryAt = 0;
   render();
-  toast('Google disconnected. Phone recordings and Drive backups are kept.');
+  try {
+    if (csrf) {
+      const r = await fetch('/auth/logout', {method:'POST', credentials:'same-origin', cache:'no-store', headers:{'X-CSRF-Token':csrf}});
+      if (!r.ok) throw new NetError();
+      ls.del('cs.disconnectPending');
+    } else await restoreSession();
+    toast(ls.get('cs.disconnectPending') ? 'Disconnect will finish when online. Phone recordings are kept.' : 'Google disconnected. Phone recordings and Drive backups are kept.');
+  } catch { toast('Disconnect will finish when online. Phone recordings are kept.'); }
 }
 
 /* ================= Drive API ================= */
 async function api(url, opts = {}) {
-  const token = getToken();
+  if (!getToken() && !await restoreSession()) throw new AuthError();
   const epoch = authEpoch;
-  if (!token) throw new AuthError();
+  const send = () => fetch(url, {...opts, signal:authController.signal,
+    headers:{...(opts.headers || {}), Authorization:'Bearer ' + getToken()}});
   let r;
   try {
-    r = await fetch(url, { ...opts, signal: authController.signal, headers: { ...(opts.headers || {}), Authorization: 'Bearer ' + token } });
+    r = await send();
+    // Refresh and retry this request once. Permanent revocation returns the recording to pending.
+    if (r.status === 401 && epoch === authEpoch && await restoreSession(true)) r = await send();
   } catch (error) { if (error.name === 'AbortError') throw new AuthError(); throw new NetError(); }
   if (epoch !== authEpoch) throw new AuthError();
-  if (r.status === 401) { clearToken(); authMessage = 'Please reconnect Google Drive. Your recordings stay on this phone.'; render(); throw new AuthError(); }
+  if (r.status === 401) { clearToken(); authRetryAt = Date.now() + 60000; authMessage = 'Please reconnect Google Drive. Your recordings stay on this phone.'; render(); throw new AuthError(); }
   return r;
 }
 async function apiError(r, what) {
@@ -407,10 +418,10 @@ async function drainQueue() {
   try {
     outer: do {
       rerun = false;
-      if (!navigator.onLine || !getToken() || !auth?.profile) break;
+      if (!navigator.onLine || (!getToken() && !await restoreSession()) || !auth?.profile) break;
       const queue = (await listVideos()).filter(isPending).sort((a, b) => a.createdAt - b.createdAt);
       for (const v of queue) {
-        if (!getToken() || !auth?.profile) break outer;
+        if ((!getToken() && !await restoreSession()) || !auth?.profile) break outer;
         const blob = await getBlob(v.id);
         if (!blob) { await patchVideo(v.id, { status: 'missing', error: 'Video data is missing on this device' }); continue; }
         await patchVideo(v.id, { status: 'uploading', error: null });
@@ -635,8 +646,7 @@ function render() {
   const pending = pendingCount();
   const uploading = videos.some((v) => v.status === 'uploading');
 
-  if (!settings.clientId) setChip(ui.accountBtn, '', 'Google account');
-  else if (signingIn) setChip(ui.accountBtn, 'busy', 'Connecting');
+  if (signingIn) setChip(ui.accountBtn, 'busy', 'Connecting');
   else if (token && auth.profile) setChip(ui.accountBtn, 'ok', auth.profile.email || 'Drive');
   else if (ls.get('cs.signedIn') === '1') setChip(ui.accountBtn, 'warn', 'Reconnect');
   else setChip(ui.accountBtn, '', 'Sign in');
@@ -659,7 +669,6 @@ function render() {
   let banner = null;
   if (unsavedFile) banner = ['Couldn’t store this video. Save it before leaving or recording again.', 'Save it', () => shareFile(unsavedFile).then((saved) => { if (saved) { unsavedFile = null; ui.recordBtn.disabled = !stream || finalizing; render(); } })];
   else if (authMessage) banner = [authMessage, 'OK', () => { authMessage = ''; render(); }];
-  else if (!settings.clientId && pending) banner = ['Saved on this phone. Google Drive backup needs app setup.', 'Settings', () => openSheet('settings')];
   else if (pending && !navigator.onLine) banner = [`Offline. ${pending} video${pending > 1 ? 's' : ''} will upload when you’re back online.`, 'OK', null];
   else if (pending && !token) banner = [`${pending} video${pending > 1 ? 's' : ''} saved on this phone, waiting for Google Drive.`, 'Sign in', () => openSheet('settings')];
   if (banner && !isRecording()) {
@@ -824,7 +833,7 @@ function bindUI() {
     maintenance();
   });
   window.addEventListener('pagehide', () => { if (isRecording()) stopRecording(); });
-  window.addEventListener('online', () => { loadGoogleIdentity().catch(() => {}); maintenance(); });
+  window.addEventListener('online', () => { authRetryAt = 0; maintenance(); });
   window.addEventListener('offline', render);
   document.addEventListener('keydown', (event) => {
     if (ui.sheet.classList.contains('hidden')) return;
@@ -841,7 +850,7 @@ function bindUI() {
 }
 
 async function maintenance() {
-  try { await cleanupLocalCopies(); await refresh(); await processQueue(); }
+  try { await cleanupLocalCopies(); await refresh(); await restoreSession(); await processQueue(); }
   catch (error) { console.error('Local maintenance failed', error); }
 }
 
@@ -879,7 +888,7 @@ async function init() {
   else await recover();
   await cleanupLocalCopies();
   await refresh();
-  if (navigator.onLine) loadGoogleIdentity().catch(() => {});
+  if (navigator.onLine) await restoreSession();
   startCamera();
   processQueue();
 }

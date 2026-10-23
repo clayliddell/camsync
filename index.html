@@ -77,10 +77,10 @@
         <p id="recordingProfile">MP4 · 720p · 30 fps · H.265 (HEVC)</p>
 
         <button id="saveSettings" class="btn blue">Save</button>
-        <p class="hint privacy">Your recordings, settings, and upload history are stored on this phone. CamSync has no account database or application server. Only the backups you authorize go to Google Drive.</p>
+        <p class="hint privacy">Your recordings, settings, and upload history are stored on this phone. The authentication service keeps your Google connection active. Recordings upload directly to your Drive.</p>
         <p class="hint"><a href="privacy.html" target="_blank" rel="noopener">Privacy details</a></p>
         <p class="hint" id="storageInfo"></p>
-        <details id="developerSetup" class="developer-setup">
+        <details id="developerSetup" class="developer-setup hidden">
           <summary>App setup</summary>
           <label class="field" for="clientId">Google OAuth client ID</label>
           <input id="clientId" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="1234-abc.apps.googleusercontent.com">

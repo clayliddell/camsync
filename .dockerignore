@@ -1,0 +1,9 @@
+.git
+node_modules
+test-results
+playwright-report
+work
+*.env
+*.sqlite*
+*.key
+*client_secret*

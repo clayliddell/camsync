@@ -92,7 +92,7 @@ test('an old 1080p setting migrates to 720p/30 with explicit HEVC/AAC recorder o
   expect(saved.video.captureSettings).toEqual({width:1280,height:720,frameRate:30});
   await page.getByRole('button',{name:'Google account',exact:true}).click();
   await expect(page.locator('#recordingProfile')).toHaveText('MP4 · 720p · 30 fps · H.265 (HEVC)');
-  await expect(page.locator('#appVersion')).toHaveText('CamSync 7');
+  await expect(page.locator('#appVersion')).toHaveText('CamSync 8');
 });
 
 test('a camera returning the wrong resolution is rejected before recording', async ({ page }) => {

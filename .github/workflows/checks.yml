@@ -1,0 +1,23 @@
+name: Check CamSync
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: npm ci
+      - run: npm test && node --check app.js && node --check sw.js
+      - run: pip install -r server/requirements.txt
+      - run: python -m unittest discover -s server -p test_auth.py

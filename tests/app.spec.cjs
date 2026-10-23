@@ -20,16 +20,24 @@ async function setup(page, options = {}) {
       };
     });
   }
-  await page.route('https://accounts.google.com/gsi/client', (route) => route.fulfill({
-    contentType: 'text/javascript',
-    body: `window.google = { accounts: { oauth2: {
-      initTokenClient(options) { window.__oauth = options; return { requestAccessToken() {
-        options.callback(window.__oauthResponse || { access_token: 'test-memory-only-token', expires_in: 3600, scope: '${scope}' });
-      } }; },
-      hasGrantedAllScopes(response, scope) { return (response.scope || '').split(' ').includes(scope); },
-      revoke(token, callback) { callback({ successful: true }); }
-    } } };`,
-  }));
+  await page.route('**/auth/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    const json = (data, status=200) => route.fulfill({status, contentType:'application/json', headers:{'Cache-Control':'no-store'}, body:JSON.stringify(data)});
+    const profile = {id:state.account,email:state.account+'@example.com',name:'Test User'};
+    if (path === '/auth/login') {
+      state.connected = !state.denied;
+      return route.fulfill({contentType:'text/html',body:'<script>location.replace("/")</script>'});
+    }
+    if (path === '/auth/logout') { state.connected=false; return route.fulfill({status:204}); }
+    if (!state.connected) return json({connected:false},401);
+    if (path === '/auth/session') return json({connected:true,csrf:'test-csrf',profile});
+    if (path === '/auth/token') {
+      state.tokenRequests = (state.tokenRequests || 0) + 1;
+      if (state.refreshDenied) return json({connected:false},401);
+      return json({access_token:'test-memory-only-token-'+state.tokenRequests,expires_at:Date.now()/1000+3600,profile});
+    }
+    return json({},404);
+  });
   await page.route('https://www.googleapis.com/**', async (route) => {
     const req = route.request(), url = new URL(req.url());
     state.requests.push({ url: req.url(), method: req.method(), body: req.postData() });
@@ -40,6 +48,7 @@ async function setup(page, options = {}) {
     if (url.pathname.startsWith('/drive/v3/files/folder-')) return json({ id: 'folder-' + state.account, trashed: false });
     if (url.pathname === '/upload/drive/v3/files') {
       if (state.unauthorized) return json({ error: { message: 'Invalid Credentials' } }, 401);
+      if (state.rejectTokenOnce && !state.tokenRejected) { state.tokenRejected=true; return json({error:{message:'Expired token'}},401); }
       state.sessions++;
       state.size = Number(req.headers()['x-upload-content-length']);
       return json({}, 200, { Location: 'https://www.googleapis.com/upload-session/' + state.account + '/' + state.sessions });
@@ -66,13 +75,15 @@ async function setup(page, options = {}) {
     if (!localStorage.getItem('cs.settings')) localStorage.setItem('cs.settings', JSON.stringify({ clientId, folderName: 'CamSync', quality: '720', retentionDays: 7 }));
   }, { clientId });
   await page.goto('/');
-  await page.waitForFunction(() => window.google?.accounts?.oauth2 && typeof db !== 'undefined' && db !== null);
+  await page.waitForFunction(() => typeof db !== 'undefined' && db !== null);
   await page.getByRole('button', { name: 'Google account', exact: true }).click();
   return state;
 }
 
 async function connect(page) {
   await page.getByRole('button', { name: 'Sign in with Google', exact: true }).click();
+  await page.waitForFunction(() => typeof db !== 'undefined' && db && getToken());
+  await page.getByRole('button', {name:'Google account',exact:true}).click();
   await expect(page.locator('#accountDetails')).toContainText('Connected');
 }
 async function record(page) {
@@ -168,11 +179,12 @@ test('changing accounts never reuses another account’s upload session or folde
 });
 
 test('denied Drive permission preserves the recording without making Drive requests', async ({ page }) => {
-  const state = await setup(page);
+  const state = await setup(page, {denied:true});
   await record(page);
-  await page.evaluate(() => { window.__oauthResponse = { access_token: 'denied', expires_in: 3600, scope: 'email' }; });
-  await page.getByRole('button', { name: 'Sign in with Google', exact: true }).click();
-  await expect(page.locator('#bannerText')).toContainText('Drive access wasn’t granted');
+  await page.getByRole('button', {name:'Sign in with Google',exact:true}).click();
+  await page.waitForURL('/');
+  await page.waitForFunction(() => typeof db !== 'undefined' && db);
+  expect(await page.evaluate(() => getToken())).toBeNull();
   expect((await clips(page))[0].blobExists).toBe(true);
   expect(state.requests).toHaveLength(0);
 });
@@ -189,17 +201,68 @@ test('unconfirmed or wrong-size Drive uploads never start retention', async ({ p
   expect((await clips(page))[0].blobExists).toBe(true);
 });
 
-test('reopening requires reconnecting and never restores a persisted access token', async ({ page }) => {
-  await setup(page);
+test('reopening restores the Google connection without persisting bearer credentials', async ({ page }) => {
+  const state = await setup(page);
   await connect(page);
   await page.reload();
-  await page.getByRole('button', { name: 'Google account', exact: true }).click();
-  await expect(page.locator('#accountDetails')).toContainText('Reconnect');
+  await page.waitForFunction(() => getToken());
+  await page.getByRole('button', {name:'Google account',exact:true}).click();
+  await expect(page.locator('#accountDetails')).toContainText('Connected');
+  const storage = await page.evaluate(() => JSON.stringify({...localStorage}));
+  expect(storage).not.toContain('test-memory-only-token');
+  expect(storage).not.toContain('test-csrf');
+  await record(page);
+  await expect.poll(async () => (await clips(page))[0]?.status).toBe('uploaded');
+  expect(state.tokenRequests).toBeGreaterThanOrEqual(2);
+});
+
+test('expired access automatically refreshes before uploading', async ({ page }) => {
+  const state = await setup(page);
+  await connect(page);
+  const initial = state.tokenRequests;
+  await page.evaluate(() => {auth.exp=Date.now()-1;});
+  await record(page);
+  await expect.poll(async () => (await clips(page))[0]?.status).toBe('uploaded');
+  expect(state.tokenRequests).toBe(initial+1);
+});
+
+test('disconnect survives reopening and cannot silently reconnect', async ({ page }) => {
+  await setup(page);
+  await connect(page);
+  await page.getByRole('button', {name:'Disconnect Google',exact:true}).click();
+  await expect(page.locator('#accountDetails')).not.toContainText('Connected');
+  await page.reload();
+  await page.waitForFunction(() => typeof db !== 'undefined' && db);
   expect(await page.evaluate(() => getToken())).toBeNull();
   await record(page);
   expect((await clips(page))[0].status).toBe('pending');
+});
+
+test('Drive token rejection refreshes once and continues uploading without sign-in', async ({page}) => {
+  const state=await setup(page,{rejectTokenOnce:true});
   await connect(page);
+  const initial=state.tokenRequests;
+  await record(page);
   await expect.poll(async () => (await clips(page))[0]?.status).toBe('uploaded');
+  expect(state.tokenRequests).toBe(initial+1);
+  expect(state.tokenRejected).toBe(true);
+});
+
+test('offline disconnect is completed on reconnect before queued uploads resume', async ({page,context}) => {
+  const state=await setup(page);
+  await connect(page);
+  await context.setOffline(true);
+  // Model the unavailable authentication service independently of Playwright's routes.
+  await page.route('**/auth/logout',route=>route.abort('internetdisconnected'));
+  await page.getByRole('button',{name:'Disconnect Google',exact:true}).click();
+  await expect.poll(() => page.evaluate(()=>ls.get('cs.disconnectPending'))).toBe('1');
+  await record(page);
+  await page.unroute('**/auth/logout');
+  await context.setOffline(false);
+  await expect.poll(() => page.evaluate(()=>ls.get('cs.disconnectPending'))).toBeNull();
+  expect(state.connected).toBe(false);
+  expect((await clips(page))[0].status).toBe('pending');
+  expect((await clips(page))[0].blobExists).toBe(true);
 });
 
 test('mobile settings fit without horizontal overflow', async ({ page }) => {
@@ -220,13 +283,15 @@ test('a missing Drive folder is created before uploading', async ({ page }) => {
 });
 
 test('an expired Google session keeps recordings until the user reconnects', async ({ page }) => {
-  await setup(page);
+  const state = await setup(page);
   await connect(page);
+  state.refreshDenied = true;
   await page.evaluate(() => { auth.exp = Date.now() - 1; });
   await record(page);
   expect((await clips(page))[0].status).toBe('pending');
   expect((await clips(page))[0].blobExists).toBe(true);
   await expect(page.getByRole('button', { name: 'Sign in with Google', exact: true })).toBeVisible();
+  state.refreshDenied = false;
   await connect(page);
   await expect.poll(async () => (await clips(page))[0]?.status).toBe('uploaded');
 });

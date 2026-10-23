@@ -1,0 +1,11 @@
+# Add alongside the existing skrrt.party host; do not replace the global Caddyfile.
+vid.skrrt.party {
+    encode zstd gzip
+    tls {
+        ca https://acme-v02.api.letsencrypt.org/directory
+    }
+    request_body {
+        max_size 4KB
+    }
+    reverse_proxy camsync:4180
+}

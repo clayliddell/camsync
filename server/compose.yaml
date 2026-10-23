@@ -1,0 +1,33 @@
+services:
+  camsync:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    image: camsync:local
+    container_name: camsync
+    restart: unless-stopped
+    pids_limit: 64
+    mem_limit: 256m
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ['/tmp:rw,noexec,nosuid,size=32m']
+    environment:
+      CAMSYNC_ORIGIN: https://vid.skrrt.party
+    env_file: /etc/camsync/service.env
+    volumes:
+      - /etc/camsync:/run/secrets:ro
+      - /var/lib/camsync:/data
+    networks: [web]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4180/healthz', timeout=5)"]
+      interval: 30s
+      timeout: 6s
+      retries: 3
+    logging:
+      driver: json-file
+      options: {max-size: 5m, max-file: '2'}
+networks:
+  web:
+    external: true
+    name: open-webui_app-network
