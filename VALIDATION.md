@@ -34,3 +34,12 @@ The phone reported the old “Records as…” settings text, confirming an olde
 - `npm run test:browser -- --workers=4`: **38 passed** (20 Chromium, 18 WebKit).
 - Four new checks install a simulated old cache and fresh HTTP-cache entries, leave another old tab open, then replace the shell using the update page. They verify current scripts were downloaded, old recording bytes and 14-day settings were preserved, the app reopens offline as version 6, and a failed download can be retried without clearing the previous cache/settings.
 - Encoder behavior is unchanged from the MP4 update. Fresh recording on the user's physical iPhone still needs confirmation after the cached app is replaced.
+
+## Version 7: 720p/30 H.265 recording
+
+- Recording requests MP4, H.265/HEVC Main profile at level 3.1 (or the browser's supported HEVC configuration), and AAC-LC audio. Every encoder candidate explicitly requests HEVC/AAC; generic MP4 and H.264 are no longer candidates.
+- Camera constraints require 1280 × 720 at 30 fps. Returned track settings are checked, accepting rotated 720 × 1280 output and nominal 29.97 fps. A different resolution or frame rate shows a camera error. Existing saved 1080p preferences migrate to the fixed 720p profile, while folder and retention choices are preserved.
+- `npm test`: **12 passed**. Includes HEVC retries, incompatible/default codec rejection, and camera-profile validation.
+- `npm run test:browser -- --workers=4`: **39 passed, 1 skipped** (21 passed/1 skipped in Chromium; 18 passed in WebKit). New checks verify migration from 1080p, actual simulated-camera track settings at 720p/30, explicit HEVC/AAC recorder options, saved capture metadata, rejection of an H.264-only recorder, and rejection of a wrong camera profile. Google upload, retention, and update-recovery checks still pass.
+- The successful HEVC recorder lifecycle in the configuration check is mocked and does not prove encoded HEVC output. The native encoded-byte/playback check is retained but skipped because this desktop Chromium build exposes no HEVC/AAC encoder. Windows WebKit does not expose MediaRecorder. A real HEVC recording and file inspection on the user's iPhone remain necessary.
+- App and service-worker versions are 7. The existing update page activates the new shell without clearing local recordings or settings. Existing recordings are not transcoded. This format does not disable Google's preview processing.

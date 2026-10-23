@@ -68,13 +68,13 @@ test.describe('updating an installed app', () => {
     deployed = true;
     await page.goto(origin + '/update.html');
     await page.getByRole('button', {name:'Update now',exact:true}).click();
-    await expect(page.getByRole('status')).toContainText('CamSync 6 is ready');
+    await expect(page.getByRole('status')).toContainText('CamSync 7 is ready');
     expect(currentScripts).toEqual(expect.arrayContaining(['/app.js','/core.js']));
     expect(await oldTab.evaluate(() => window.LEGACY_APP)).toBe(true);
     await page.getByRole('link', {name:'Open CamSync',exact:true}).click();
     await page.waitForFunction(() => typeof db !== 'undefined' && db);
     await page.getByRole('button', {name:'Google account',exact:true}).click();
-    await expect(page.locator('#appVersion')).toHaveText('CamSync 6');
+    await expect(page.locator('#appVersion')).toHaveText('CamSync 7');
     await expect(page.locator('#formatInfo')).not.toContainText('Records as');
     await expect(page.getByLabel('Drive folder')).toHaveValue('Phone clips');
     await expect(page.getByLabel('Delete phone copies after upload')).toHaveValue('14');
@@ -82,11 +82,11 @@ test.describe('updating an installed app', () => {
     expect(clip.data).toEqual([11,22,33]);
     expect(clip.video.name).toBe('Existing.webm');
     expect(clip.video.status).toBe('pending');
-    expect(await page.evaluate(() => typeof CamSyncCore.startMp4Recorder)).toBe('function');
+    expect(await page.evaluate(() => typeof CamSyncCore.startHevcRecorder)).toBe('function');
     await context.setOffline(true);
     await page.reload();
     await page.getByRole('button', {name:'Google account',exact:true}).click();
-    await expect(page.locator('#appVersion')).toHaveText('CamSync 6');
+    await expect(page.locator('#appVersion')).toHaveText('CamSync 7');
     await expect(page.getByLabel('Delete phone copies after upload')).toHaveValue('14');
   });
 
@@ -101,6 +101,6 @@ test.describe('updating an installed app', () => {
     expect(await page.evaluate(() => caches.has('camsync-v4'))).toBe(true);
     workerError = false;
     await page.getByRole('button', {name:'Try again',exact:true}).click();
-    await expect(page.getByRole('status')).toContainText('CamSync 6 is ready');
+    await expect(page.getByRole('status')).toContainText('CamSync 7 is ready');
   });
 });

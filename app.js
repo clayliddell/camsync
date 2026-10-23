@@ -1,18 +1,14 @@
 'use strict';
 
-const APP_VERSION = '6';
+const APP_VERSION = '7';
 
 /* ================= Config ================= */
 // Optional: paste your OAuth client ID here instead of entering it in Settings.
 const DEFAULT_CLIENT_ID = window.CAMSYNC_CONFIG?.googleClientId || '';
-const { retentionDays, localExpiry, expiredLocalIds, receivedOffset, MP4_MIME_TYPES, startMp4Recorder } = CamSyncCore;
+const { retentionDays, localExpiry, expiredLocalIds, receivedOffset, RECORDING_PROFILE, HEVC_MIME_TYPES, matchesRecordingProfile, startHevcRecorder } = CamSyncCore;
 const SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const CHUNK_SIZE = 8 * 1024 * 1024; // must be a multiple of 256 KiB
 const HISTORY_LIMIT = 40;           // uploaded entries kept in the list
-const QUALITY = {
-  '720':  { w: 1280, h: 720,  bps: 4000000 },
-  '1080': { w: 1920, h: 1080, bps: 8000000 },
-};
 const DRIVE = 'https://www.googleapis.com/drive/v3';
 const UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
 
@@ -24,7 +20,7 @@ const ui = {
   banner: $('banner'), bannerText: $('bannerText'), bannerBtn: $('bannerBtn'),
   settingsBtn: $('settingsBtn'), recordBtn: $('recordBtn'), flipBtn: $('flipBtn'),
   backdrop: $('backdrop'), sheet: $('sheet'), closeSheet: $('closeSheet'), list: $('list'),
-  clientId: $('clientId'), folderName: $('folderName'), quality: $('quality'), retentionDays: $('retentionDays'),
+  clientId: $('clientId'), folderName: $('folderName'), retentionDays: $('retentionDays'),
   appOrigin: $('appOrigin'), saveSettings: $('saveSettings'), signOutBtn: $('signOutBtn'),
   googleSignInBtn: $('googleSignInBtn'), accountDetails: $('accountDetails'), storageInfo: $('storageInfo'),
   formatInfo: $('formatInfo'), appVersion: $('appVersion'), updateApp: $('updateApp'), toast: $('toast'),
@@ -54,12 +50,12 @@ function toast(msg) {
 }
 
 /* ================= Settings ================= */
-const DEFAULTS = { clientId: '', folderName: 'CamSync', quality: '1080', retentionDays: 7 };
+const DEFAULTS = { clientId: '', folderName: 'CamSync', quality: '720', retentionDays: 7 };
 let settings = loadSettings();
 function loadSettings() {
   const s = { ...DEFAULTS, ...(ls.json('cs.settings') || {}) };
   if (!s.clientId) s.clientId = DEFAULT_CLIENT_ID;
-  if (!QUALITY[s.quality]) s.quality = '1080';
+  s.quality = '720'; // Migrate existing 1080p settings to the fixed recording profile.
   if (!s.folderName) s.folderName = DEFAULTS.folderName;
   s.retentionDays = retentionDays(s.retentionDays);
   delete s.keepLocal; // Migrate v1 without deleting any existing phone copies.
@@ -471,7 +467,7 @@ const isRecording = () => !!recorder && recorder.state === 'recording';
 
 function pickMime() {
   if (typeof MediaRecorder === 'undefined') return null;
-  for (const m of MP4_MIME_TYPES) {
+  for (const m of HEVC_MIME_TYPES) {
     try { if (MediaRecorder.isTypeSupported(m)) return m; } catch {}
   }
   return null;
@@ -496,16 +492,21 @@ async function startCamera() {
   }
   stopStream();
   ui.recordBtn.disabled = true;
-  const q = QUALITY[settings.quality];
   try {
     stream = await navigator.mediaDevices.getUserMedia({
       audio: true,
-      video: { facingMode: { ideal: facing }, width: { ideal: q.w }, height: { ideal: q.h }, frameRate: { ideal: 30 } },
+      video: { facingMode: { ideal: facing }, width: { exact: RECORDING_PROFILE.width }, height: { exact: RECORDING_PROFILE.height }, frameRate: { exact: RECORDING_PROFILE.frameRate } },
     });
+    if (!matchesRecordingProfile(stream.getVideoTracks()[0].getSettings())) {
+      stopStream();
+      showOverlay('This camera did not provide 720p at 30 fps. Try another camera.', true);
+      return;
+    }
   } catch (e) {
     showOverlay(e.name === 'NotAllowedError'
       ? 'Camera or microphone access was blocked. Allow it and try again.'
-      : `Couldn’t start the camera (${e.message || e.name}).`, true);
+      : e.name === 'OverconstrainedError' ? 'This camera can’t provide 720p at 30 fps. Try another camera.'
+        : `Couldn’t start the camera (${e.message || e.name}).`, true);
     return;
   }
   ui.preview.srcObject = stream;
@@ -525,17 +526,18 @@ function releaseWakeLock() { try { wakeLock?.release(); } catch {} wakeLock = nu
 
 function startRecording() {
   if (!stream || isRecording() || finalizing || unsavedFile) return;
-  const q = QUALITY[settings.quality];
-  const opts = { videoBitsPerSecond: q.bps, audioBitsPerSecond: 128000 };
+  const { width, height, frameRate } = stream.getVideoTracks()[0].getSettings();
+  if (!matchesRecordingProfile({ width, height, frameRate })) { toast('The camera must provide 720p at 30 fps.'); return; }
+  const opts = { videoBitsPerSecond: RECORDING_PROFILE.videoBitsPerSecond, audioBitsPerSecond: RECORDING_PROFILE.audioBitsPerSecond };
   const startedAt = Date.now();
   try {
-    recorder = startMp4Recorder(typeof MediaRecorder === 'undefined' ? null : MediaRecorder, stream, opts, (rec, mime) => {
+    recorder = startHevcRecorder(typeof MediaRecorder === 'undefined' ? null : MediaRecorder, stream, opts, (rec, mime) => {
       const chunks = [];
       rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
       rec.onstop = async () => {
         finalizing = true;
         ui.recordBtn.disabled = true;
-        try { await saveRecording(chunks, rec.mimeType || mime, startedAt, Date.now()); }
+        try { await saveRecording(chunks, rec.mimeType || mime, startedAt, Date.now(), { width, height, frameRate }); }
         finally {
           finalizing = false;
           ui.recordBtn.disabled = !stream || !!unsavedFile;
@@ -569,7 +571,7 @@ function stopRecording() {
   releaseWakeLock();
 }
 
-async function saveRecording(parts, mimeType, startedAt, stoppedAt) {
+async function saveRecording(parts, mimeType, startedAt, stoppedAt, captureSettings = null) {
   // Blob event types describe the actual output. Never relabel WebM as MP4.
   const recordingMime = parts.find((part) => part.size && part.type)?.type || mimeType || 'video/mp4';
   const type = recordingMime.split(';')[0];
@@ -581,6 +583,7 @@ async function saveRecording(parts, mimeType, startedAt, stoppedAt) {
     name: `Video ${stamp(new Date(startedAt))}.${ext}`,
     mime: type,
     recordingMime,
+    captureSettings,
     size: blob.size,
     duration: stoppedAt - startedAt,
     createdAt: startedAt,
@@ -746,11 +749,10 @@ function switchTab(tab) {
 function fillSettingsForm() {
   ui.clientId.value = settings.clientId;
   ui.folderName.value = settings.folderName;
-  ui.quality.value = settings.quality;
   ui.retentionDays.value = String(settings.retentionDays);
   ui.appOrigin.textContent = location.origin;
   const mime = pickMime();
-  ui.formatInfo.textContent = mime === null ? 'MP4 recording is unavailable in this browser. On iPhone, use an updated Safari.' : 'Records MP4 using H.264 video and AAC audio. Google Drive may still process its playback preview after upload.';
+  ui.formatInfo.textContent = mime === null ? 'This browser does not support H.265 (HEVC) recording. Update your phone and browser, then try again.' : 'Records 720p at 30 fps as MP4 with H.265 (HEVC) video and AAC audio. Google Drive may still process its playback preview after upload.';
   ui.appVersion.textContent = `CamSync ${APP_VERSION}`;
 }
 async function saveSettingsForm() {
@@ -764,11 +766,10 @@ async function saveSettingsForm() {
   settings = {
     clientId,
     folderName: ui.folderName.value.trim().replace(/[\\/]/g, '-') || DEFAULTS.folderName,
-    quality: QUALITY[ui.quality.value] ? ui.quality.value : '1080',
+    quality: '720',
     retentionDays: retentionDays(ui.retentionDays.value),
   };
   storeSettings();
-  if (settings.quality !== prev.quality && !isRecording()) startCamera();
   if (settings.clientId !== prev.clientId) {
     clearToken();
     ls.del('cs.signedIn');

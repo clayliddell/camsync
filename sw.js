@@ -1,6 +1,6 @@
 // Caches the app shell so CamSync opens (and records) without a connection.
 // Bump VERSION when you change any app file so phones pick up the update.
-const VERSION = 'camsync-v6';
+const VERSION = 'camsync-v7';
 const SHELL = [
   './',
   './index.html',

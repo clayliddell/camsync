@@ -108,7 +108,7 @@ button:disabled { opacity: .4; cursor: default; }
 .bar i { display: block; height: 100%; width: 0; background: var(--blue); transition: width .3s; }
 .empty { color: var(--muted); text-align: center; padding: 36px 0; font-size: 14px; }
 
-label.field { display: block; margin: 14px 0 6px; font-size: 13px; color: var(--muted); }
+label.field, p.field { display: block; margin: 14px 0 6px; font-size: 13px; color: var(--muted); }
 input[type=text], select {
   width: 100%; padding: 12px; border-radius: 10px; border: 1px solid var(--line);
   background: rgba(255, 255, 255, .06); color: var(--fg); font: inherit; font-size: 16px; -webkit-appearance: none; appearance: none;

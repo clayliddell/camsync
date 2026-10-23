@@ -31,31 +31,37 @@
     return next;
   }
 
-  // Let the encoder select an H.264 profile before trying explicit profiles.
-  // Generic MP4 supports older Safari versions that don't recognize codecs.
-  const MP4_MIME_TYPES = Object.freeze([
-    'video/mp4;codecs=avc1,mp4a.40.2',
-    'video/mp4;codecs=avc1.424028,mp4a.40.2',
-    'video/mp4;codecs=avc1.640028,mp4a.40.2',
-    'video/mp4',
+  const RECORDING_PROFILE = Object.freeze({ width: 1280, height: 720, frameRate: 30, videoBitsPerSecond: 4000000, audioBitsPerSecond: 128000 });
+  // Main profile, level 3.1 supports 720p/30. Keep every attempt on HEVC/AAC.
+  const HEVC_MIME_TYPES = Object.freeze([
+    'video/mp4;codecs=hvc1.1.6.L93.B0,mp4a.40.2',
+    'video/mp4;codecs=hev1.1.6.L93.B0,mp4a.40.2',
+    'video/mp4;codecs=hvc1,mp4a.40.2',
+    'video/mp4;codecs=hev1,mp4a.40.2',
   ]);
-  function compatibleMp4(type) {
+  function compatibleHevcMp4(type) {
     if (!/^video\/mp4(?:\s*;|$)/i.test(type || '')) return false;
-    const codecs = /codecs\s*=\s*"?([^";]+)/i.exec(type)?.[1];
-    return !codecs || codecs.split(',').every((codec) => /^(avc[13](\.[\da-f]+)?|mp4a\.40\.2)$/i.test(codec.trim()));
+    const codecs = /codecs\s*=\s*"?([^";]+)/i.exec(type)?.[1]?.split(',').map((codec) => codec.trim());
+    return !!codecs && codecs.length === 2 && codecs.some((codec) => /^(hvc1|hev1)(\.[a-z0-9]+)*$/i.test(codec)) && codecs.some((codec) => /^mp4a\.40\.2$/i.test(codec));
   }
-  function startMp4Recorder(Recorder, stream, options, configure) {
-    if (!Recorder) throw new Error('This browser cannot record MP4 video. On iPhone, use an updated Safari.');
-    for (const mimeType of MP4_MIME_TYPES) {
+  function matchesRecordingProfile(settings) {
+    const dimensions = [settings.width, settings.height].sort((a, b) => a - b);
+    // Portrait camera output may report the same dimensions in reverse order.
+    return dimensions[0] === RECORDING_PROFILE.height && dimensions[1] === RECORDING_PROFILE.width && Math.abs(settings.frameRate - RECORDING_PROFILE.frameRate) < 0.1;
+  }
+  function startHevcRecorder(Recorder, stream, options, configure) {
+    const failure = 'H.265 (HEVC) recording could not start. Update your phone and browser, then try again.';
+    if (!Recorder) throw new Error(failure);
+    for (const mimeType of HEVC_MIME_TYPES) {
       let rec;
       try {
         if (!Recorder.isTypeSupported(mimeType)) continue;
         rec = new Recorder(stream, { ...options, mimeType });
-        if (rec.mimeType && !compatibleMp4(rec.mimeType)) continue;
+        if (rec.mimeType && !compatibleHevcMp4(rec.mimeType)) continue;
         configure(rec, mimeType);
         // Some encoders advertise support but fail at construction or start.
         rec.start(1000);
-        if (rec.mimeType && !compatibleMp4(rec.mimeType)) throw new Error('Unexpected recording format');
+        if (rec.mimeType && !compatibleHevcMp4(rec.mimeType)) throw new Error('Unexpected recording format');
         return rec;
       } catch {
         if (rec) {
@@ -64,11 +70,11 @@
         }
       }
     }
-    // Never silently switch to the browser default (which can be WebM/Opus).
-    throw new Error('MP4 recording could not start. On iPhone, try an updated Safari. No video was recorded.');
+    // Generic MP4 can select H.264, so it is not a fallback for this profile.
+    throw new Error(failure);
   }
 
-  const core = Object.freeze({ DAY_MS, RETENTION_DAYS, retentionDays, localExpiry, expiredLocalIds, receivedOffset, MP4_MIME_TYPES, compatibleMp4, startMp4Recorder });
+  const core = Object.freeze({ DAY_MS, RETENTION_DAYS, retentionDays, localExpiry, expiredLocalIds, receivedOffset, RECORDING_PROFILE, HEVC_MIME_TYPES, compatibleHevcMp4, matchesRecordingProfile, startHevcRecorder });
   if (typeof module !== 'undefined' && module.exports) module.exports = core;
   else root.CamSyncCore = core;
 })(globalThis);
