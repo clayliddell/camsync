@@ -4,7 +4,7 @@ WORKDIR /app/server
 COPY server/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt && useradd -u 10001 -M camsync
 COPY server/app.py server/wsgi.py ./
-COPY index.html privacy.html update.html styles.css app.js core.js config.js sw.js manifest.webmanifest /app/
+COPY index.html privacy.html update.html styles.css app.js core.js zoom.js config.js sw.js manifest.webmanifest /app/
 COPY icons /app/icons
 ENV CAMSYNC_WEB_ROOT=/app
 USER 10001:10001

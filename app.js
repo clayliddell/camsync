@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '8';
+const APP_VERSION = '9';
 
 /* ================= Config ================= */
 // Optional: paste your OAuth client ID here instead of entering it in Settings.
@@ -473,6 +473,8 @@ let recStartedAt = 0;
 let timerId = 0;
 let wakeLock = null;
 let unsavedFile = null;
+const cameraZoom = new CamSyncZoom({ video: ui.preview, canvas: $('zoomPreview'),
+  control: $('zoomControl'), button: $('zoomReset'), onError: toast });
 
 const isRecording = () => !!recorder && recorder.state === 'recording';
 
@@ -491,6 +493,7 @@ function showOverlay(msg, canRetry) {
 }
 
 function stopStream() {
+  cameraZoom.stop();
   if (stream) stream.getTracks().forEach((t) => t.stop());
   stream = null;
   ui.preview.srcObject = null;
@@ -523,6 +526,7 @@ async function startCamera() {
   ui.preview.srcObject = stream;
   ui.preview.classList.toggle('mirror', facing === 'user');
   try { await ui.preview.play(); } catch {}
+  cameraZoom.start(stream);
   ui.overlay.classList.add('hidden');
   ui.recordBtn.disabled = finalizing || !!unsavedFile;
 }
@@ -542,7 +546,7 @@ function startRecording() {
   const opts = { videoBitsPerSecond: RECORDING_PROFILE.videoBitsPerSecond, audioBitsPerSecond: RECORDING_PROFILE.audioBitsPerSecond };
   const startedAt = Date.now();
   try {
-    recorder = startHevcRecorder(typeof MediaRecorder === 'undefined' ? null : MediaRecorder, stream, opts, (rec, mime) => {
+    recorder = startHevcRecorder(typeof MediaRecorder === 'undefined' ? null : MediaRecorder, cameraZoom.recordingStream || stream, opts, (rec, mime) => {
       const chunks = [];
       rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
       rec.onstop = async () => {

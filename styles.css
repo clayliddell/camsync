@@ -23,8 +23,13 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
 button:disabled { opacity: .4; cursor: default; }
 .hidden { display: none !important; }
 
-#preview { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #000; }
-#preview.mirror { transform: scaleX(-1); }
+#preview, #zoomPreview { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #000; }
+#preview { touch-action: none; }
+#preview.mirror, #zoomPreview.mirror { transform: scaleX(-1); }
+#zoomPreview { pointer-events: none; }
+#zoomControl { position: fixed; bottom: calc(var(--safe-b) + 138px); left: 50%; transform: translateX(-50%); z-index: 5; display: flex; flex-direction: column; align-items: center; gap: 5px; pointer-events: none; }
+#zoomReset { pointer-events: auto; font-variant-numeric: tabular-nums; }
+#zoomControl span { color: rgba(255,255,255,.8); font-size: 12px; text-shadow: 0 1px 4px #000; white-space: nowrap; }
 
 .overlay {
   position: fixed; inset: 0; z-index: 4; background: #000; padding: 24px;

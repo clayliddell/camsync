@@ -72,7 +72,7 @@ class AuthTests(unittest.TestCase):
     def test_private_shell_and_static_allowlist(self):
         self.assertEqual(self.get('/').status_code, 401)
         self.assertIn(b'Sign in with Google', self.get('/').data)
-        for path in ['/app.js', '/sw.js']:
+        for path in ['/app.js', '/zoom.js', '/sw.js']:
             self.assertEqual(self.get(path).status_code, 401)
         for path in ['/server/app.py', '/.git/config', '/package.json', '/.env', '/etc/passwd']:
             self.assertEqual(self.get(path).status_code, 404)

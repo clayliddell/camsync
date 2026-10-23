@@ -23,7 +23,7 @@ STATE_COOKIE = '__Host-camsync-login'
 SESSION_TTL = 90 * 86400
 PUBLIC_FILES = {'privacy.html', 'manifest.webmanifest', 'icons/icon-192.png',
                 'icons/icon-512.png', 'icons/apple-touch-icon.png', 'update.html'}
-APP_FILES = {'index.html', 'app.js', 'core.js', 'config.js', 'styles.css', 'sw.js'}
+APP_FILES = {'index.html', 'app.js', 'core.js', 'zoom.js', 'config.js', 'styles.css', 'sw.js'}
 
 
 @contextmanager

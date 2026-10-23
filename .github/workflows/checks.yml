@@ -18,6 +18,6 @@ jobs:
         with:
           python-version: '3.12'
       - run: npm ci
-      - run: npm test && node --check app.js && node --check sw.js
+      - run: npm test && node --check app.js && node --check zoom.js && node --check sw.js
       - run: pip install -r server/requirements.txt
       - run: python -m unittest discover -s server -p test_auth.py
