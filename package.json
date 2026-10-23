@@ -1,0 +1,14 @@
+{
+  "name": "camsync",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Phone-local video recording with direct Google Drive backup and local retention.",
+  "scripts": {
+    "start": "node scripts/serve.cjs",
+    "test": "node --test tests/core.test.cjs",
+    "test:browser": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0"
+  }
+}

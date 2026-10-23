@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="CamSync">
+  <meta name="theme-color" content="#000000">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+  <title>CamSync</title>
+</head>
+<body>
+  <video id="preview" playsinline muted autoplay></video>
+
+  <div id="overlay" class="overlay">
+    <h1>CamSync</h1>
+    <p id="overlayMsg">Starting camera…</p>
+    <button id="retryCamBtn" class="primary hidden">Start camera</button>
+  </div>
+
+  <header class="topbar">
+    <button id="accountBtn" class="chip" aria-label="Google account"><i class="dot"></i><span>Google account</span></button>
+    <div id="timer" class="timer hidden">00:00</div>
+    <button id="queueBtn" class="chip"><i class="dot"></i><span>No videos</span></button>
+  </header>
+
+  <div id="banner" class="banner hidden"><span id="bannerText"></span><button id="bannerBtn"></button></div>
+
+  <footer class="controls">
+    <button id="settingsBtn" class="icon-btn" aria-label="Uploads and settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+    </button>
+    <button id="recordBtn" class="record" aria-label="Start recording" disabled><span></span></button>
+    <button id="flipBtn" class="icon-btn" aria-label="Switch camera">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7h-3l-2-3H9L7 7H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1Z"/><path d="M9.5 12.5a3 3 0 0 1 5-1.6M14.5 14.5a3 3 0 0 1-5 1.6"/><path d="M14.5 9.5v1.6h-1.6M9.5 17.5v-1.6h1.6"/></svg>
+    </button>
+  </footer>
+
+  <div id="backdrop" class="backdrop hidden"></div>
+  <section id="sheet" class="sheet hidden" role="dialog" aria-modal="true" aria-label="Uploads and settings">
+    <div class="sheet-head">
+      <div class="tabs">
+        <button class="tab active" data-tab="uploads">Uploads</button>
+        <button class="tab" data-tab="settings">Settings</button>
+      </div>
+      <button id="closeSheet" class="link">Done</button>
+    </div>
+    <div class="sheet-body">
+      <div id="tab-uploads"><div id="list"></div></div>
+      <div id="tab-settings" class="hidden">
+        <div class="account-card">
+          <h2>Google Drive backup</h2>
+          <p id="accountDetails">Sign in to automatically back up your recordings.</p>
+          <button id="googleSignInBtn" class="google-btn"><svg aria-hidden="true" viewBox="0 0 48 48"><path fill="#4285F4" d="M43.61 24.46c0-1.36-.12-2.66-.35-3.92H24v7.42h11a9.4 9.4 0 0 1-4.08 6.18v5.14h6.61c3.87-3.57 6.08-8.83 6.08-14.82Z"/><path fill="#34A853" d="M24 44c5.5 0 10.11-1.82 13.48-4.96l-6.61-5.14c-1.83 1.23-4.17 1.97-6.87 1.97-5.32 0-9.83-3.59-11.44-8.42H5.73v5.3A20.36 20.36 0 0 0 24 44Z"/><path fill="#FBBC05" d="M12.56 27.45a12.2 12.2 0 0 1 0-7.78v-5.3H5.73a20.36 20.36 0 0 0 0 18.38l6.83-5.3Z"/><path fill="#EA4335" d="M24 12.13c3 0 5.68 1.03 7.8 3.06l5.85-5.85C34.1 6.03 29.5 4 24 4A20.36 20.36 0 0 0 5.73 14.37l6.83 5.3C14.17 14.84 18.68 12.13 24 12.13Z"/></svg><span>Sign in with Google</span></button>
+          <button id="signOutBtn" class="btn danger hidden">Disconnect Google</button>
+          <p class="hint">Recordings stay on this phone until uploaded directly to your Drive. Keep CamSync open while uploading.</p>
+        </div>
+
+        <label class="field" for="folderName">Drive folder</label>
+        <input id="folderName" type="text" maxlength="120" autocomplete="off" placeholder="CamSync">
+        <div class="hint">CamSync creates this folder in your connected Google Drive.</div>
+
+        <label class="field" for="retentionDays">Delete phone copies after upload</label>
+        <select id="retentionDays" aria-describedby="retentionHint">
+          <option value="7">7 days</option>
+          <option value="14">14 days</option>
+          <option value="30">30 days</option>
+        </select>
+        <div class="hint" id="retentionHint">Counted from each successful upload. Drive backups are kept. Applies to existing phone copies too; cleanup runs while CamSync is open or next reopened. Recordings waiting to upload are always kept.</div>
+
+        <label class="field" for="quality">Quality</label>
+        <select id="quality">
+          <option value="720">720p · smaller files, faster uploads</option>
+          <option value="1080">1080p</option>
+        </select>
+
+        <button id="saveSettings" class="btn blue">Save</button>
+        <p class="hint privacy">Your recordings, settings, and upload history are stored on this phone. CamSync has no account database or application server. Only the backups you authorize go to Google Drive.</p>
+        <p class="hint" id="storageInfo"></p>
+        <details id="developerSetup" class="developer-setup">
+          <summary>App setup</summary>
+          <label class="field" for="clientId">Google OAuth client ID</label>
+          <input id="clientId" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="1234-abc.apps.googleusercontent.com">
+          <div class="hint">For the app owner: configure a web client with this authorized JavaScript origin:<br><code id="appOrigin"></code>. The client ID can also be set in config.js before publishing.</div>
+        </details>
+        <div class="hint" id="formatInfo"></div>
+      </div>
+    </div>
+  </section>
+
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+  <script src="config.js" defer></script>
+  <script src="core.js" defer></script>
+  <script src="app.js" defer></script>
+</body>
+</html>
