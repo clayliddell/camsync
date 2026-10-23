@@ -8,9 +8,9 @@
 
 Push app changes to `main` to deploy. The workflow checks the retention rules and JavaScript syntax, packages only the static app and icons, and deploys the artifact. Tests, documentation, dependencies, and recordings are not part of the hosted artifact.
 
-In GitHub repository **Settings → Pages**, the custom domain is `vid.skrrt.party`. Enable **Enforce HTTPS** after GitHub provisions the certificate. GitHub manages certificate renewals.
+In GitHub repository **Settings → Pages**, the custom domain is `vid.skrrt.party`. The certificate is approved and **Enforce HTTPS** is enabled. HTTPS returns 200 and HTTP redirects to HTTPS. GitHub manages certificate renewals.
 
-Google sign-in also requires a public OAuth client ID in `config.js`, an enabled Google Drive API, and `https://vid.skrrt.party` under that web client's authorized JavaScript origins. See `README.md`. Until configured, users can record locally, but cannot connect Google Drive.
+Google sign-in uses the public OAuth client ID in `config.js`, the enabled Google Drive API, and `https://vid.skrrt.party` as the web client's authorized JavaScript origin. No client secret is included in the app. The privacy notice is at `https://vid.skrrt.party/privacy.html`.
 
 The Google Cloud project for this deployment is `camsync-512516`. The Google Drive API is enabled. No virtual machine, application backend, or Cloud Storage bucket is required.
 
