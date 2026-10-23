@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '10';
+const APP_VERSION = '11';
 
 /* ================= Config ================= */
 // Optional: paste your OAuth client ID here instead of entering it in Settings.

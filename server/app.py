@@ -291,6 +291,9 @@ def create_app(config=None, provider=None):
                 abort(401)
             return make_response('''<!doctype html><html lang="en"><meta charset="utf-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1"><title>CamSync — Sign in</title>
+                <link rel="manifest" href="/manifest.webmanifest?v=11">
+                <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png?v=11">
+                <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=11">
                 <style>body{font:18px system-ui;background:#080808;color:#eee;max-width:26rem;margin:15vh auto;padding:24px}
                 a{color:#8ab4f8} .button{display:inline-block;background:#fff;color:#222;padding:14px 22px;border-radius:12px;text-decoration:none}
                 p{line-height:1.6}</style><h1>CamSync</h1><p>Private video recording and Google Drive backup.</p>

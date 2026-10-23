@@ -50,3 +50,5 @@ Tests cover retention, codec/profile selection, IndexedDB, offline shell updates
 ## Updating an installed app
 
 Open **https://vid.skrrt.party/update.html** from the same browser or installed app. Finish any recording first. Sign in once if requested; the update preserves phone recordings and settings. Keep the hostname unchanged to preserve IndexedDB access.
+
+CamSync 11 uses the selected Record Ring icon: a red recording dot surrounded by the green, yellow, and blue ring on charcoal. The iPhone touch icon is 180 × 180; the PWA icons are 192 × 192 and 512 × 512. Icon and manifest URLs are versioned, including on the sign-in and update pages.

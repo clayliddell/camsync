@@ -71,3 +71,10 @@ The phone reported the old “Records as…” settings text, confirming an olde
 - If autoplay is blocked, the app's Start camera button resumes the existing video-only preview without reopening the camera or microphone.
 - 12 Node and 9 authentication tests passed. Browser suite: **57 passed, 11 skipped**, including actual two-finger touch input in Chromium. **4 additional native Brave checks passed**: HEVC/AAC recording, recorded zoom playback, and pinch/Stop with both camera and digital zoom. Windows WebKit's missing native capture and bundled Chromium's missing HEVC encoder remain explicit test limitations. Physical iPhone behavior still needs retesting.
 - App and service-worker versions are 10. Update-recovery tests confirm existing phone recordings and settings are preserved.
+
+## Selected Record Ring app icon — CamSync 11
+
+- Applied the user's second icon option without altering the artwork. Exported 180 × 180 iPhone, 192 × 192 PWA/favicon, and 512 × 512 PWA/maskable PNGs. The original selected design remains in the adjacent icon-options deliverables.
+- Manifest, icon links, and offline-shell entries use version 11 URLs. Sign-in and update pages reference the same icon, including when installing before signing in. App and worker versions are 11.
+- 12 Node and 9 authentication tests passed. The existing Chromium/WebKit browser suite passed 57 tests with 11 expected native-media skips. Update recovery preserved existing phone recording bytes and settings and reopened offline with version 11. The 512-pixel export was visually inspected.
+- A home-screen icon refresh on an existing physical iPhone installation has not been verified. No phone storage is cleared by this update.

@@ -1,6 +1,6 @@
 // Caches the app shell so CamSync opens (and records) without a connection.
 // Bump VERSION when you change any app file so phones pick up the update.
-const VERSION = 'camsync-v10';
+const VERSION = 'camsync-v11';
 const SHELL = [
   './',
   './index.html',
@@ -10,10 +10,10 @@ const SHELL = [
   './core.js',
   './zoom.js',
   './privacy.html',
-  './manifest.webmanifest',
-  './icons/icon-192.png',
-  './icons/icon-512.png',
-  './icons/apple-touch-icon.png',
+  './manifest.webmanifest?v=11',
+  './icons/icon-192.png?v=11',
+  './icons/icon-512.png?v=11',
+  './icons/apple-touch-icon.png?v=11',
 ];
 
 self.addEventListener('install', (event) => {
