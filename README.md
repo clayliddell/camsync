@@ -2,6 +2,8 @@
 
 A phone web app that records video locally and backs it up directly to the user's Google Drive. No application server, user database, analytics, or third-party recording storage is used.
 
+The live deployment is **https://vid.skrrt.party/**, with source at **https://github.com/clayliddell/camsync**. Google OAuth is configured for that HTTPS origin. See `DEPLOYMENT.md` for hosting details.
+
 ## What changed in v2
 
 - **Sign in with Google** connects the user's own Drive using Google Identity Services and the limited `drive.file` scope.
@@ -27,7 +29,7 @@ Phone camera access requires an HTTPS deployment. Host the app shell on any stat
 
 ## Configure Google sign-in before publishing
 
-The archive did not contain an OAuth client ID. Real Google account access remains unavailable until the app owner completes this one-time setup:
+The live deployment's Google client is already configured. For a fork or a different hostname, complete this setup with your own client (or add the new origin to the existing client you control):
 
 1. In [Google Cloud Console](https://console.cloud.google.com/), create or select a project and enable the **Google Drive API**.
 2. Configure branding, audience, and the OAuth consent screen. Request only `https://www.googleapis.com/auth/drive.file`. While in Testing, add the intended accounts as test users. Complete Google's applicable publishing steps before broad release.

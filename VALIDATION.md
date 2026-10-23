@@ -11,6 +11,8 @@ Verified on October 23, 2026.
 
 Google authorization and Drive responses were mocked. No real Google account was connected and no real Drive upload was performed. WebKit is the desktop test engine, not a physical iPhone. Its Windows test adapter requires a Fetch Response shim for a mocked HTTP 308; the application itself uses normal Drive requests.
 
-The remaining deployment setup is to enable Drive API, register the deployment origin in a Google web OAuth client, and set its public ID in `config.js`. Follow `README.md`, then verify consent, recording, upload/reconnect, and cleanup on the target phones.
+Deployment setup is complete: GitHub Pages hosts `https://vid.skrrt.party`, HTTPS is enforced, Google Drive API is enabled, and an OAuth web client is configured for that exact origin. The OAuth app is in production with only the non-sensitive `drive.file` scope. The deployment workflow's tests pass. The offline-shell checks also passed again in Chromium and WebKit after adding the privacy notice.
+
+The live Google client ID and current service-worker version were verified over HTTPS with normal certificate validation. Public DNS resolves correctly; the local router still caches the earlier NXDOMAIN response. No real user consent or Drive upload was performed. Verify consent, recording, upload/reconnect, and cleanup on the target phones.
 
 Cleanup intentionally removes only phone video bytes after the selected number of days from a verified upload. Drive backups are kept. This PWA performs uploads and cleanup while running; overdue cleanup occurs on reopening.
