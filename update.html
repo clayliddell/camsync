@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101114">
+  <title>Update CamSync</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; background: #101114; color: #f4f5f7; font: 16px/1.5 system-ui, sans-serif; }
+    main { width: 100%; max-width: 440px; padding: 28px; border: 1px solid #34373e; border-radius: 20px; background: #191b20; }
+    h1 { margin: 0 0 12px; font-size: 28px; line-height: 1.2; }
+    p { color: #c4c8d0; }
+    button, a { display: block; width: 100%; padding: 13px 16px; border: 0; border-radius: 12px; background: #1877ed; color: white; font: inherit; font-weight: 600; text-align: center; text-decoration: none; cursor: pointer; }
+    button:disabled { opacity: .6; cursor: wait; }
+    button:focus-visible, a:focus-visible { outline: 3px solid #8ac2ff; outline-offset: 3px; }
+    [hidden] { display: none; }
+    .note { font-size: 14px; }
+    #status { min-height: 48px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Update CamSync</h1>
+    <p>Install the latest app. Your saved phone recordings and settings are kept.</p>
+    <p class="note">Finish any recording in other CamSync windows before updating.</p>
+    <button id="update" type="button">Update now</button>
+    <p id="status" role="status" aria-live="polite">Stay online while the update downloads.</p>
+    <a id="open" href="./" hidden>Open CamSync</a>
+  </main>
+  <script>
+    'use strict';
+    const button = document.getElementById('update');
+    const status = document.getElementById('status');
+    const open = document.getElementById('open');
+
+    function waitForWorker(worker, states) {
+      return new Promise((resolve, reject) => {
+        const finish = (error) => {
+          clearTimeout(timeout);
+          worker.removeEventListener('statechange', check);
+          error ? reject(error) : resolve();
+        };
+        const check = () => {
+          if (states.includes(worker.state)) finish();
+          else if (worker.state === 'redundant') finish(new Error('Update download failed'));
+        };
+        const timeout = setTimeout(() => finish(new Error('Update timed out')), 30000);
+        worker.addEventListener('statechange', check);
+        check();
+      });
+    }
+    function workerVersion(worker) {
+      return new Promise((resolve, reject) => {
+        const channel = new MessageChannel();
+        const timeout = setTimeout(() => { channel.port1.close(); reject(new Error('Update version unavailable')); }, 5000);
+        channel.port1.onmessage = (event) => {
+          clearTimeout(timeout);
+          channel.port1.close();
+          if (/^camsync-v\d+$/.test(event.data?.version)) resolve(event.data.version.replace('camsync-v', ''));
+          else reject(new Error('Update version unavailable'));
+        };
+        worker.postMessage({ type: 'CAMSYNC_VERSION' }, [channel.port2]);
+      });
+    }
+    button.addEventListener('click', async () => {
+      button.disabled = true;
+      status.textContent = 'Downloading the latest CamSync…';
+      try {
+        if (!('serviceWorker' in navigator)) throw new Error('Updates unavailable');
+        const registration = await navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' });
+        await registration.update();
+        const worker = registration.installing || registration.waiting || registration.active;
+        if (!worker) throw new Error('Update unavailable');
+        await waitForWorker(worker, ['installed', 'activating', 'activated']);
+        if (worker.state === 'installed') worker.postMessage({ type: 'CAMSYNC_ACTIVATE_UPDATE' });
+        await waitForWorker(worker, ['activated']);
+        const version = await workerVersion(worker);
+        status.textContent = `CamSync ${version} is ready. Your saved phone recordings and settings were kept.`;
+        button.hidden = true;
+        open.hidden = false;
+      } catch {
+        status.textContent = 'Couldn’t download the update. Check your connection and try again. Your saved recordings and settings are kept.';
+        button.disabled = false;
+        button.textContent = 'Try again';
+      }
+    });
+  </script>
+</body>
+</html>

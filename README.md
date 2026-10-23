@@ -86,11 +86,14 @@ Before production, configure a real client and test consent, camera recording, i
 | `app.js` | Local storage, recording, Google authorization, queue, cleanup |
 | `core.js` | Shared retention and resumable-offset rules |
 | `sw.js` | Versioned offline app shell |
+| `update.html` | Downloads and activates the latest app without clearing local phone data |
 | `manifest.webmanifest`, `icons/` | Home-screen installation |
 | `scripts/serve.cjs` | Development server |
 | `tests/`, `playwright.config.cjs` | Automated verification |
 
-Publish the static app files, manifest, and icons; tests and npm packages are development-only. Bump `VERSION` in `sw.js` whenever app files or configuration change. Workers cache a complete shell version and activate after current CamSync tabs close, avoiding script replacement during a recording.
+Publish the static app files (including `update.html`), manifest, and icons; tests and npm packages are development-only. Bump `VERSION` in `sw.js` and `APP_VERSION` in `app.js` whenever app files or configuration change. New shells download with HTTP-cache revalidation, and worker update checks bypass the HTTP cache. Workers normally wait for existing tabs to close.
+
+If a phone still shows the old app, open **https://vid.skrrt.party/update.html** in the same browser, finish recordings in any other CamSync windows, tap **Update now**, then **Open CamSync**. This activates the newly downloaded shell without clearing IndexedDB or localStorage. Settings show the loaded app version and a permanent update link. Failed downloads leave the old app/data available and can be retried. Existing videos keep their original file format.
 
 ## Implementation references
 

@@ -1,5 +1,7 @@
 'use strict';
 
+const APP_VERSION = '6';
+
 /* ================= Config ================= */
 // Optional: paste your OAuth client ID here instead of entering it in Settings.
 const DEFAULT_CLIENT_ID = window.CAMSYNC_CONFIG?.googleClientId || '';
@@ -25,7 +27,7 @@ const ui = {
   clientId: $('clientId'), folderName: $('folderName'), quality: $('quality'), retentionDays: $('retentionDays'),
   appOrigin: $('appOrigin'), saveSettings: $('saveSettings'), signOutBtn: $('signOutBtn'),
   googleSignInBtn: $('googleSignInBtn'), accountDetails: $('accountDetails'), storageInfo: $('storageInfo'),
-  formatInfo: $('formatInfo'), toast: $('toast'),
+  formatInfo: $('formatInfo'), appVersion: $('appVersion'), updateApp: $('updateApp'), toast: $('toast'),
 };
 const ls = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
@@ -749,6 +751,7 @@ function fillSettingsForm() {
   ui.appOrigin.textContent = location.origin;
   const mime = pickMime();
   ui.formatInfo.textContent = mime === null ? 'MP4 recording is unavailable in this browser. On iPhone, use an updated Safari.' : 'Records MP4 using H.264 video and AAC audio. Google Drive may still process its playback preview after upload.';
+  ui.appVersion.textContent = `CamSync ${APP_VERSION}`;
 }
 async function saveSettingsForm() {
   const prev = { ...settings };
@@ -847,12 +850,25 @@ async function init() {
   if (/(^#|&)(access_token|error)=/.test(location.hash)) history.replaceState(null, '', location.pathname + location.search);
   storeSettings();
   bindUI();
+  ui.updateApp.addEventListener('click', (event) => {
+    if (isRecording() || finalizing || unsavedFile) {
+      event.preventDefault();
+      toast('Finish and save your recording before updating.');
+    }
+  });
   try { db = await openDB(); } catch (e) { toast('Local storage unavailable: ' + (e?.message || e)); }
   try {
     const persistent = await navigator.storage?.persist?.();
     ui.storageInfo.textContent = persistent ? 'Persistent local storage is enabled on this device.' : 'Phone storage is managed by your browser. Clearing app data removes phone recordings, settings, and history. Drive backups are kept.';
   } catch {}
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((registration) => {
+      const showUpdate = () => { if (registration.waiting) ui.updateApp.textContent = 'App update available'; };
+      showUpdate();
+      registration.addEventListener('updatefound', () => registration.installing?.addEventListener('statechange', showUpdate));
+      registration.update().catch(() => {});
+    }).catch(() => {});
+  }
 
   // Recover interrupted status only when another tab is not actively uploading.
   const recover = async () => {

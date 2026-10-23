@@ -25,3 +25,12 @@ Cleanup intentionally removes only phone video bytes after the selected number o
 - `npm run test:browser -- --workers=4`: **34 passed** (18 Chromium, 16 WebKit). The actual simulated-camera recording test checks the MP4 `ftyp` signature, H.264 `avc1` and AAC `mp4a` tracks, saved bytes, and successful video decoding. Another check verifies a failed MP4 startup leaves the record button usable.
 - Service-worker cache advanced to `camsync-v5`. Close existing CamSync windows and reopen to activate the new shell after it downloads.
 - Real iPhone recording with the new encoder selection and the resulting Google Drive preview latency still require confirmation. MP4 compatibility does not guarantee that Google's preview processing is instant.
+
+## Cached-app update recovery
+
+The phone reported the old “Records as…” settings text, confirming an older loaded app. Version 6 adds a standalone update page and a visible loaded-app version. Shell installation revalidates HTTP-cached assets, worker update checks bypass the HTTP cache, and the update button explicitly activates a waiting worker. No local recording/settings stores are cleared.
+
+- `npm test`: **11 passed**.
+- `npm run test:browser -- --workers=4`: **38 passed** (20 Chromium, 18 WebKit).
+- Four new checks install a simulated old cache and fresh HTTP-cache entries, leave another old tab open, then replace the shell using the update page. They verify current scripts were downloaded, old recording bytes and 14-day settings were preserved, the app reopens offline as version 6, and a failed download can be retried without clearing the previous cache/settings.
+- Encoder behavior is unchanged from the MP4 update. Fresh recording on the user's physical iPhone still needs confirmation after the cached app is replaced.
