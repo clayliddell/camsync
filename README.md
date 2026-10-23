@@ -15,6 +15,10 @@ The live deployment is **https://vid.skrrt.party/**, with source at **https://gi
 - Recordings display their local removal date and a link to the Drive backup. Up to 40 history entries whose phone bytes have been removed are kept.
 - Tokens are held in memory only. Legacy v1 persisted tokens are removed; existing recordings and settings are preserved. The old “keep local” switch is replaced by timed retention. Previously removed phone copies cannot be recovered locally.
 
+## Recording format
+
+Recordings now request **MP4 with H.264 video and AAC audio**. CamSync retries compatible MP4 encoder configurations if construction or startup fails; it never silently falls back to WebM or the browser default. Browsers unable to start MP4 recording show an error. Existing recordings keep their original format. This avoids the WebM/Opus compatibility concern, but [Google Drive may still process a playback preview](https://support.google.com/drive/answer/2423694?hl=en), including for MP4 files. An immediate Drive preview on every device is not guaranteed by the file format.
+
 ## Run locally
 
 Install Node.js 20 or later, then run from this folder:

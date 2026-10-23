@@ -16,3 +16,12 @@ Deployment setup is complete: GitHub Pages hosts `https://vid.skrrt.party`, HTTP
 The live Google client ID and current service-worker version were verified over HTTPS with normal certificate validation. Public DNS resolves correctly; the local router still caches the earlier NXDOMAIN response. No real user consent or Drive upload was performed. Verify consent, recording, upload/reconnect, and cleanup on the target phones.
 
 Cleanup intentionally removes only phone video bytes after the selected number of days from a verified upload. Drive backups are kept. This PWA performs uploads and cleanup while running; overdue cleanup occurs on reopening.
+
+## MP4 recording update
+
+- The reported sample was downloaded from the CamSync Drive folder for metadata inspection. Its binary headers identify WebM, VP8 video, and Opus audio. No video contents were published.
+- The prior constructor error path discarded the selected MP4 format and used the unconstrained browser default. Recording now retries MP4 configurations, rejects known incompatible output types/codecs, and reports failure instead of silently using WebM.
+- `npm test`: **11 passed**, including constructor/start failures, incompatible codecs, and a WebM-only browser.
+- `npm run test:browser -- --workers=4`: **34 passed** (18 Chromium, 16 WebKit). The actual simulated-camera recording test checks the MP4 `ftyp` signature, H.264 `avc1` and AAC `mp4a` tracks, saved bytes, and successful video decoding. Another check verifies a failed MP4 startup leaves the record button usable.
+- Service-worker cache advanced to `camsync-v5`. Close existing CamSync windows and reopen to activate the new shell after it downloads.
+- Real iPhone recording with the new encoder selection and the resulting Google Drive preview latency still require confirmation. MP4 compatibility does not guarantee that Google's preview processing is instant.

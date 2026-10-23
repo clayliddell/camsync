@@ -3,7 +3,7 @@
 /* ================= Config ================= */
 // Optional: paste your OAuth client ID here instead of entering it in Settings.
 const DEFAULT_CLIENT_ID = window.CAMSYNC_CONFIG?.googleClientId || '';
-const { retentionDays, localExpiry, expiredLocalIds, receivedOffset } = CamSyncCore;
+const { retentionDays, localExpiry, expiredLocalIds, receivedOffset, MP4_MIME_TYPES, startMp4Recorder } = CamSyncCore;
 const SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const CHUNK_SIZE = 8 * 1024 * 1024; // must be a multiple of 256 KiB
 const HISTORY_LIMIT = 40;           // uploaded entries kept in the list
@@ -11,13 +11,6 @@ const QUALITY = {
   '720':  { w: 1280, h: 720,  bps: 4000000 },
   '1080': { w: 1920, h: 1080, bps: 8000000 },
 };
-const MIME_CANDIDATES = [
-  'video/mp4;codecs=avc1.640028,mp4a.40.2',
-  'video/mp4;codecs=avc1,mp4a',
-  'video/mp4',
-  'video/webm;codecs=vp9,opus',
-  'video/webm',
-];
 const DRIVE = 'https://www.googleapis.com/drive/v3';
 const UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
 
@@ -476,10 +469,10 @@ const isRecording = () => !!recorder && recorder.state === 'recording';
 
 function pickMime() {
   if (typeof MediaRecorder === 'undefined') return null;
-  for (const m of MIME_CANDIDATES) {
+  for (const m of MP4_MIME_TYPES) {
     try { if (MediaRecorder.isTypeSupported(m)) return m; } catch {}
   }
-  return '';
+  return null;
 }
 
 function showOverlay(msg, canRetry) {
@@ -530,30 +523,27 @@ function releaseWakeLock() { try { wakeLock?.release(); } catch {} wakeLock = nu
 
 function startRecording() {
   if (!stream || isRecording() || finalizing || unsavedFile) return;
-  const mime = pickMime();
-  if (mime === null) { toast('Recording isn’t supported in this browser.'); return; }
   const q = QUALITY[settings.quality];
   const opts = { videoBitsPerSecond: q.bps, audioBitsPerSecond: 128000 };
-  if (mime) opts.mimeType = mime;
-  let rec;
-  try { rec = new MediaRecorder(stream, opts); } catch { rec = new MediaRecorder(stream); }
   const startedAt = Date.now();
-  const chunks = [];
-  rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
-  rec.onstop = async () => {
-    finalizing = true;
-    ui.recordBtn.disabled = true;
-    try { await saveRecording(chunks, rec.mimeType || mime, startedAt, Date.now()); }
-    finally {
-      finalizing = false;
-      ui.recordBtn.disabled = !stream || !!unsavedFile;
-      ui.flipBtn.disabled = false;
-      ui.settingsBtn.disabled = false;
-    }
-  };
-  rec.onerror = (e) => toast('Recording error: ' + (e.error?.message || 'unknown'));
-  recorder = rec;
-  rec.start(1000);
+  try {
+    recorder = startMp4Recorder(typeof MediaRecorder === 'undefined' ? null : MediaRecorder, stream, opts, (rec, mime) => {
+      const chunks = [];
+      rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+      rec.onstop = async () => {
+        finalizing = true;
+        ui.recordBtn.disabled = true;
+        try { await saveRecording(chunks, rec.mimeType || mime, startedAt, Date.now()); }
+        finally {
+          finalizing = false;
+          ui.recordBtn.disabled = !stream || !!unsavedFile;
+          ui.flipBtn.disabled = false;
+          ui.settingsBtn.disabled = false;
+        }
+      };
+      rec.onerror = (e) => toast('Recording error: ' + (e.error?.message || 'unknown'));
+    });
+  } catch (error) { toast(error.message); return; }
 
   recStartedAt = startedAt;
   ui.recordBtn.classList.add('on');
@@ -578,7 +568,9 @@ function stopRecording() {
 }
 
 async function saveRecording(parts, mimeType, startedAt, stoppedAt) {
-  const type = (mimeType || parts[0]?.type || 'video/mp4').split(';')[0];
+  // Blob event types describe the actual output. Never relabel WebM as MP4.
+  const recordingMime = parts.find((part) => part.size && part.type)?.type || mimeType || 'video/mp4';
+  const type = recordingMime.split(';')[0];
   const blob = new Blob(parts, { type });
   if (!blob.size) { toast('Nothing was recorded.'); return; }
   const ext = type.includes('mp4') ? 'mp4' : type.includes('webm') ? 'webm' : 'mov';
@@ -586,6 +578,7 @@ async function saveRecording(parts, mimeType, startedAt, stoppedAt) {
     id: randomId(),
     name: `Video ${stamp(new Date(startedAt))}.${ext}`,
     mime: type,
+    recordingMime,
     size: blob.size,
     duration: stoppedAt - startedAt,
     createdAt: startedAt,
@@ -755,7 +748,7 @@ function fillSettingsForm() {
   ui.retentionDays.value = String(settings.retentionDays);
   ui.appOrigin.textContent = location.origin;
   const mime = pickMime();
-  ui.formatInfo.textContent = mime === null ? 'This browser can’t record video.' : `Records as ${mime ? mime.split(';')[0] : 'the browser default'}.`;
+  ui.formatInfo.textContent = mime === null ? 'MP4 recording is unavailable in this browser. On iPhone, use an updated Safari.' : 'Records MP4 using H.264 video and AAC audio. Google Drive may still process its playback preview after upload.';
 }
 async function saveSettingsForm() {
   const prev = { ...settings };
